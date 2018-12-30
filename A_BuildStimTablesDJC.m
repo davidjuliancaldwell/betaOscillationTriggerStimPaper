@@ -10,39 +10,8 @@ SUB_DIR = fullfile(myGetenv('subject_dir'));
 % select the subject from list
 sid = SIDS{4};
 
-if (strcmp(sid, '8adc5c'))
-    tp = strcat(SUB_DIR,'\8adc5c\data\D6\8adc5c_BetaTriggeredStim');
-    block = 'Block-67';
-    
-    % SMon-2 is the stim command
-    % SMon-4 is the realized voltage
-    tic;
-    [smon, fs] = tdt_loadStream(tp, block, 'SMon', 2);
-    [stim, ~] = tdt_loadStream(tp, block, 'SMon', 4);
-    toc;
-    
-    % Wave-1 looks like the trigger signal
-    % Wave-2 is the mode
-    % Wave-3 is the mode time/counter
-    % Wave-4 looks like the stim command
-    tic;
-    [mode, ~] = tdt_loadStream(tp, block, 'Wave', 2);
-    [beta, ~] = tdt_loadStream(tp, block, 'Wave', 1);
-    ttype = 0*beta;
-    toc;
-    
-    %     % these three lines will get rid of first 1000 stimuli where the
-    %     threshold was being changed a lot.
-    mode(1:1.1e7) = 0;
-    beta(1:1.1e7) = 0;
-    smon(1:1.1e7) = 0;
-    stim(1:1.1e7) = 0;
-    ttype(1:1.1e7) = 0;
-    
-elseif (strcmp(sid, 'd5cd55'))
-   
-     tp = strcat(SUB_DIR,'\d5cd55\data\D8\d5cd55_BetaTriggeredStim');
-    block = 'Block-49';
+if (strcmp(sid, 'd5cd55'))
+       block = 'Block-49';
     
     % SMon-1 is the system enable
     % SMon-2 is the stim command
@@ -86,9 +55,7 @@ elseif (strcmp(sid, 'd5cd55'))
     %     smon(1:4.5e6) = [];
     
 elseif (strcmp(sid, 'c91479'))
-   
-        tp = strcat(SUB_DIR,'\c91479\data\d7\c91479_BetaTriggeredStim');
-    block = 'BetaPhase-14';
+       block = 'BetaPhase-14';
     
     % SMon-1 is the system enable
     % SMon-2 is the stim command
@@ -129,9 +96,6 @@ elseif (strcmp(sid, 'c91479'))
     stim(1:2e7) = 0;
     raw(1:2e7) = 0;
 elseif (strcmp(sid, '7dbdec'))
-    
-            tp = strcat(SUB_DIR,'\7dbdec\data\d7\7dbdec_BetaTriggeredStim');
-
     block = 'BetaPhase-17';
     
     % SMon-1 is the system enable
@@ -154,7 +118,6 @@ elseif (strcmp(sid, '7dbdec'))
     [raw, ~] = tdt_loadStream(tp, block, 'Blck', 2);
     toc;
 elseif (strcmp(sid, '9ab7ab'))
-                tp = strcat(SUB_DIR,'\9ab7ab\data\d7\9ab7ab_BetaTriggeredStim');
     block = 'BetaPhase-3';
     
     % SMon-1 is the system enable
@@ -185,8 +148,6 @@ elseif (strcmp(sid, '9ab7ab'))
     toc;
 elseif (strcmp(sid, '702d24'))
     tank = TTank;
-                    tp = strcat(SUB_DIR,'\702d24\data\d7\702d24_BetaStim');
-
     tank.openTank(tp);
     tank.selectBlock('BetaPhase-4');
     %     tp = 'd:\research\subjects\702d24\data\d7\702d24_BetaStim';
@@ -223,8 +184,6 @@ elseif (strcmp(sid, '702d24'))
     
     % added last subject, DJC - 7-23-2015
 elseif (strcmp(sid, 'ecb43e'))
-                        tp = strcat(SUB_DIR,'\ecb43e\data\d7\BetaStim');
-
     tank = TTank;
     tank.openTank(tp);
     tank.selectBlock('BetaPhase-3');
@@ -276,8 +235,6 @@ elseif (strcmp(sid, 'ecb43e'))
     %     [raw, ~] = tdt_loadStream(tp, block, 'Blck', 2);
     %     toc;
 elseif (strcmp(sid, '0b5a2e'))
-                            tp = strcat(SUB_DIR,'\0b5a2e\data\d8\0b5a2e_BetaStim\0b5a2e_BetaStim');
-
     tank = TTank;
     tank.openTank(tp);
     tank.selectBlock('BetaPhase-2');
