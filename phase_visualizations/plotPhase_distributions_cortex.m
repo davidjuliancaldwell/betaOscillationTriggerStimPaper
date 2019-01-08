@@ -4,12 +4,6 @@
 
 % David.J.Caldwell 8.26.2018
 %%
-%close all;clear all;clc
-baseDir = 'C:\Users\david\Data\Output\BetaTriggeredStim\PhaseDelivery';
-addpath(baseDir);
-
-OUTPUT_DIR = 'C:\Users\djcald.CSENETID\Data\Output\BetaTriggeredStim\PhaseDelivery\plots';
-TouchDir(OUTPUT_DIR);
 
 SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'};
 valueSet = {{'s',180,1,[54 62],[1 49 58 59],53},...
@@ -21,7 +15,6 @@ valueSet = {{'s',180,1,[54 62],[1 49 58 59],53},...
     {'m',[90,270],7,[22 30],[24 25 29],31},...
     {'m',[90,270],8,[22 30],[24 25 29],31}};
 M = containers.Map(SIDS,valueSet,'UniformValues',false);
-modifier = '_51samps_12_20_60ms_randomstart';
 modifier = '_51samps_12_20_40ms_randomstart';
 SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'};
 
@@ -35,7 +28,6 @@ closeAll = 0;
 threshold = 0.7;
 fThresholdMin = 12.01;
 fThresholdMax = 19.99;
-
 
 % don't plot direction of magnitude of phase difference
 magnitudeOnly = 1;
@@ -54,8 +46,8 @@ for sid = SIDS
     badsTotal = [stims bads];
     chans(ismember(chans, badsTotal)) = [];
     Montage.MontageTokenized = {'Grid(1:64)'};
-       
-    load([sid '_phaseDelivery_allChans' modifier '.mat']);
+    
+    load(fullfile(folderPhase,[sid '_phaseDelivery_allChans' modifier '.mat']));
     
     fprintf(['running for subject ' sid '\n']);
     

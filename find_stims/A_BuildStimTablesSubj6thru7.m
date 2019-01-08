@@ -9,7 +9,7 @@ Z_Constants;
 % 5/24/2016 - DJC add 0a80cf
 
 % select the subject from list
-for index = 7:8
+for index = 6:8
     sid = SIDS{index};
     load([sid '_stim_table_data_file.mat'])
     

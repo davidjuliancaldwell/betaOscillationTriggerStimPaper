@@ -6,11 +6,6 @@
 %%
 %close all;clear all;clc
 %close all
-baseDir = 'C:\Users\david\Data\Output\BetaTriggeredStim\PhaseDelivery\';
-addpath(baseDir);
-
-OUTPUT_DIR = 'C:\Users\david\Data\Output\BetaTriggeredStim\PhaseDelivery\allChans';
-TouchDir(OUTPUT_DIR);
 
 SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'};
 valueSet = {{'s',180,1,[54 62],[1 49 58 59],53},{'m',[0 180],2,[55 56],[2 3 31 57],64},{'s',180,3,[11 12],[57],4},...
@@ -19,10 +14,6 @@ valueSet = {{'s',180,1,[54 62],[1 49 58 59],53},{'m',[0 180],2,[55 56],[2 3 31 5
 M = containers.Map(SIDS,valueSet,'UniformValues',false);
 
 modifier = '_51samps_12_20_40ms_randomstart';
-%modifier = '_13samps_8_30_40ms_randomstart';
-%modifier = '_13samps_10_30_40ms_randomstart';
-
-%modifierPhase = '_51samps_12_20_40m_0startPhase';
 
 
 % settings
@@ -45,7 +36,7 @@ SIDS = {'0b5a2e'};
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 for sid = SIDS
     sid = sid{:};
-    load([sid '_phaseDelivery_allChans' modifier '.mat']);
+    load(fullfile(folderPhase,[sid '_phaseDelivery_allChans' modifier '.mat']));
     closeAll = 0;
     
     fprintf(['running for subject ' sid '\n']);
@@ -80,10 +71,10 @@ for sid = SIDS
             for chan = chans
                 fprintf(['chan ' num2str(chan) '\n'])
                 signalType = 'raw';
-                plotPhase_distributions_function(f_pos(:,chan),phase_at_0_pos(:,chan),r_square_pos(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,testStatistic,fThresholdMin,fThresholdMax);
-                plotPhase_distributions_function(f_neg(:,chan),phase_at_0_neg(:,chan),r_square_neg(:,chan),threshold,desiredF(2),sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,testStatistic,fThresholdMin,fThresholdMax)   ;
-                plotPhase_subplots_func(t,fitline_pos(:,:,chan),f_pos(:,chan),phase_at_0_pos(:,chan),r_square_pos(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,fThresholdMin,fThresholdMax)    ;
-                plotPhase_subplots_func(t,fitline_neg(:,:,chan),f_neg(:,chan),phase_at_0_neg(:,chan),r_square_neg(:,chan),threshold,desiredF(2),sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,fThresholdMin,fThresholdMax);
+                plotPhase_distributions_function(f_pos(:,chan),phase_at_0_pos(:,chan),r_square_pos(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,folderPlots,saveIt,testStatistic,fThresholdMin,fThresholdMax);
+                plotPhase_distributions_function(f_neg(:,chan),phase_at_0_neg(:,chan),r_square_neg(:,chan),threshold,desiredF(2),sid,subjectNum,chan,type,signalType,folderPlots,saveIt,testStatistic,fThresholdMin,fThresholdMax)   ;
+                plotPhase_subplots_func(t,fitline_pos(:,:,chan),f_pos(:,chan),phase_at_0_pos(:,chan),r_square_pos(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,folderPlots,saveIt,fThresholdMin,fThresholdMax)    ;
+                plotPhase_subplots_func(t,fitline_neg(:,:,chan),f_neg(:,chan),phase_at_0_neg(:,chan),r_square_neg(:,chan),threshold,desiredF(2),sid,subjectNum,chan,type,signalType,folderPlots,saveIt,fThresholdMin,fThresholdMax);
             end
             
             if closeAll
@@ -95,10 +86,10 @@ for sid = SIDS
             for chan = chans
                 fprintf(['chan ' num2str(chan) '\n'])
                 signalType = 'filtered';
-                plotPhase_distributions_function(f_pos_acaus(:,chan),phase_at_0_pos_acaus(:,chan),r_square_pos_acaus(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,testStatistic,fThresholdMin,fThresholdMax)      ;
-                plotPhase_distributions_function(f_neg_acaus,phase_at_0_neg_acaus(:,chan),r_square_neg_acaus(:,chan),desiredF(2),threshold,sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,testStatistic,fThresholdMin,fThresholdMax)     ;
-                plotPhase_subplots_func(t,fitline_pos_acaus(:,:,chan),f_pos_acaus(:,chan),phase_at_0_pos_acaus(:,chan),r_square_pos_acaus(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,fThresholdMin,fThresholdMax)    ;
-                plotPhase_subplots_func(t,fitline_neg_acaus(:,:,chan),f_neg_acaus(:,chan),phase_at_0_neg_acaus(:,chan),r_square_neg_acaus(:,chan),threshold,desiredF(2),sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,fThresholdMin,fThresholdMax);
+                plotPhase_distributions_function(f_pos_acaus(:,chan),phase_at_0_pos_acaus(:,chan),r_square_pos_acaus(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,folderPlots,saveIt,testStatistic,fThresholdMin,fThresholdMax)      ;
+                plotPhase_distributions_function(f_neg_acaus,phase_at_0_neg_acaus(:,chan),r_square_neg_acaus(:,chan),desiredF(2),threshold,sid,subjectNum,chan,type,signalType,folderPlots,saveIt,testStatistic,fThresholdMin,fThresholdMax)     ;
+                plotPhase_subplots_func(t,fitline_pos_acaus(:,:,chan),f_pos_acaus(:,chan),phase_at_0_pos_acaus(:,chan),r_square_pos_acaus(:,chan),threshold,desiredF(1),sid,subjectNum,chan,type,signalType,folderPlots,saveIt,fThresholdMin,fThresholdMax)    ;
+                plotPhase_subplots_func(t,fitline_neg_acaus(:,:,chan),f_neg_acaus(:,chan),phase_at_0_neg_acaus(:,chan),r_square_neg_acaus(:,chan),threshold,desiredF(2),sid,subjectNum,chan,type,signalType,folderPlots,saveIt,fThresholdMin,fThresholdMax);
             end
             if closeAll
                 close all
@@ -114,8 +105,8 @@ for sid = SIDS
             for chan = chans
                 fprintf(['chan ' num2str(chan) '\n'])
                 signalType = 'raw';
-                plotPhase_distributions_function(f(:,chan),phase_at_0(:,chan),r_square(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,testStatistic,fThresholdMin,fThresholdMax);
-                plotPhase_subplots_func(t,fitline(:,:,chan),f(:,chan),phase_at_0(:,chan),r_square(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,fThresholdMin,fThresholdMax)   ;
+                plotPhase_distributions_function(f(:,chan),phase_at_0(:,chan),r_square(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,folderPlots,saveIt,testStatistic,fThresholdMin,fThresholdMax);
+                plotPhase_subplots_func(t,fitline(:,:,chan),f(:,chan),phase_at_0(:,chan),r_square(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,folderPlots,saveIt,fThresholdMin,fThresholdMax)   ;
             end
             if closeAll
                 close all
@@ -126,8 +117,8 @@ for sid = SIDS
             signalType = 'filtered';
             for chan = chans
                 fprintf(['chan ' num2str(chan) '\n'])
-                plotPhase_distributions_function(f_acaus(:,chan),phase_at_0(:,chan),r_square(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,testStatistic,fThresholdMin,fThresholdMax)     ;
-                plotPhase_subplots_func(t,fitline_acaus(:,:,chan),f_acaus(:,chan),phase_at_0_acaus(:,chan),r_square_acaus(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,OUTPUT_DIR,saveIt,fThresholdMin,fThresholdMax);
+                plotPhase_distributions_function(f_acaus(:,chan),phase_at_0(:,chan),r_square(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,folderPlots,saveIt,testStatistic,fThresholdMin,fThresholdMax)     ;
+                plotPhase_subplots_func(t,fitline_acaus(:,:,chan),f_acaus(:,chan),phase_at_0_acaus(:,chan),r_square_acaus(:,chan),threshold,desiredF,sid,subjectNum,chan,type,signalType,folderPlots,saveIt,fThresholdMin,fThresholdMax);
             end
             if closeAll
                 close all

@@ -68,8 +68,8 @@ for ind = filesVec
     %% fit it
     
     % set parameters for fit function
-    fRange = [10 30];
-    smoothSpan = 13;
+    fRange = [12 20];
+    smoothSpan = 51;
     plotFit = 0;
     [phaseAt0,f,Rsquare,FITLINE] = phase_calculation(epochedBeta,tEpoch,smoothSpan,fRange,fs,plotFit);
     

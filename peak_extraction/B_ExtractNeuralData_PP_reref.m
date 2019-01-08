@@ -2,13 +2,12 @@
 % parameters
 
 Z_Constants
-SUB_DIR = META_DIR;
 
 %% additional options
 
 savePlot = 0;
 saveIt = 0;
-plotIt = 0;
+plotIt = 1;
 plotItTrials = 0;
 plotItStimArtifact = 0;
 chanInt = 31;
@@ -136,10 +135,10 @@ for idx = 1:8
     %% load in the trigger data
 
     if strcmp(sid,'0b5a2ePlayback')
-        load(fullfile(META_DIR, ['0b5a2e_tables.mat']), 'bursts', 'fs', 'stims');
+        load(fullfile(folderTiming, ['0b5a2e_tables.mat']), 'bursts', 'fs', 'stims');
         delay = 577869;
     else
-        load(fullfile(META_DIR, [sid '_tables.mat']), 'bursts', 'fs', 'stims'); 
+        load(fullfile(folderTiming, [sid '_tables.mat']), 'bursts', 'fs', 'stims'); 
     end
     % drop any stims that happen in the first 500 milliseconds
     stims(:,stims(2,:) < fs/2) = [];
@@ -187,7 +186,7 @@ for idx = 1:8
         achan = chan - grp*16;
         
         if achan==1 || achan == 2
-            load(fullfile(folderData,[sid '_ECoG.mat']),ev);
+            load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
         end
         eco = dataStruct.data(:,achan);
@@ -251,20 +250,21 @@ for idx = 1:8
     statThresh = length(chans);
     
     for chan = chans
-        %% load in ecog data for that channel
-        fprintf('loading in ecog data for: %s \n',sid);
+        fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
-        
         tic;
+        
         grp = floor((chan-1)/16);
-        ev = sprintf('ECO%d', grp+1);
+        ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
         
-        %         [eco, efs] = tdt_loadStream(tp, block, ev, achan);
-        [eco, info] = tank.readWaveEvent(ev, achan);
-        efs = info.SamplingRateHz;
+        if achan==1 || achan == 2
+            load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
+            dataStruct = eval(ev);
+        end
+        eco = dataStruct.data(:,achan);
         eco = 4*eco';
-        
+        efs = dataStruct.info.SamplingRateHz;
         toc;
         
         fac = fs/efs;
@@ -566,8 +566,8 @@ for idx = 1:8
                 set(gca,'fontsize',18)
                 
                 if savePlot
-                    %     SaveFig(OUTPUT_DIR, sprintf(['EP-phase-%d-sid-%s-chan-%d'],typei,sid, chan,type,signalType), 'svg');
-                    SaveFig(OUTPUT_DIR, sprintf(['EP-phase-%d-sid-%s-chan-%d'],typei,sid, chan), 'png','-r600');
+                    %     SaveFig(folderPlots, sprintf(['EP-phase-%d-sid-%s-chan-%d'],typei,sid, chan,type,signalType), 'svg');
+                    SaveFig(folderPlots, sprintf(['EP-phase-%d-sid-%s-chan-%d'],typei,sid, chan), 'png','-r600');
                 end
                 % end
             end
@@ -575,11 +575,11 @@ for idx = 1:8
         
     end
     if saveIt
-        save(fullfile(OUTPUT_DIR, [sid 'epSTATS-PP-sig-reref-100.mat']), 'dataForPPanalysis','kruskalWallisStats');
+        save(fullfile(folderEP, [sid 'epSTATS-PP-sig-reref-100.mat']), 'dataForPPanalysis','kruskalWallisStats');
         %close all;
         fprintf('saved %s:\n',sid);
         
-        clearvars -except idx SIDS OUTPUT_DIR META_DIR SUB_DIR savePlot saveIt plotIt plotItTrials rerefMode plotItStimArtifact chanInt labelChoice shuffleSig avgTrials numAvg smoothPP shuffleSigPP
+        clearvars -except idx SIDS folderPlots folderEP folderData savePlot saveIt plotIt plotItTrials rerefMode plotItStimArtifact chanInt labelChoice shuffleSig avgTrials numAvg smoothPP shuffleSigPP
     end
 end
 

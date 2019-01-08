@@ -1,4 +1,4 @@
-function [totalFig] = burst_hist(sid,bursts,typeCell,OUTPUT_DIR)
+function [totalFig] = burst_hist(sid,bursts,typeCell,OUTPUT_DIR,saveIt)
 % this function is designed to take a burst table (in the case of ecb43e,
 % where there are a given number of conditions, and plot a histogram of the number of
 % bursts in each size, binned.
@@ -7,8 +7,6 @@ function [totalFig] = burst_hist(sid,bursts,typeCell,OUTPUT_DIR)
 
 % for histc
 %X = 0:15;
-
-
 
 % kruskal wallis?
 n_max = unique(bursts(5,:));
@@ -45,8 +43,11 @@ end
 xlabel('Number of pulses in train');
 ylabel('Total number of pulses');
 subtitle(sprintf('Subject %s - number of stimulations in beta burst',sid))
-SaveFig(OUTPUT_DIR, sprintf(['burstHist-subj-%s'], sid), 'eps', '-r600');
-SaveFig(OUTPUT_DIR, sprintf(['burstHist-subj-%s'], sid), 'png', '-r600');
-SaveFig(OUTPUT_DIR, sprintf(['burstHist-subj-%s'], sid), 'svg', '-r600');
+
+if saveIt
+    SaveFig(OUTPUT_DIR, sprintf(['burstHist-subj-%s'], sid), 'eps', '-r600');
+    SaveFig(OUTPUT_DIR, sprintf(['burstHist-subj-%s'], sid), 'png', '-r600');
+    SaveFig(OUTPUT_DIR, sprintf(['burstHist-subj-%s'], sid), 'svg', '-r600');
+end
 
 end

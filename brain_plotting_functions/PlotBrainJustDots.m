@@ -78,14 +78,14 @@ end
 %legend([h(1),h(2)],{'Stimulation electrodes','Recording evoked potentials'})
 
 %legend([h(1),h(2)],{'Non Stimulation electrodes','Map EPs'})
-
-gridSize = 64;
-trodeLabels = [1:gridSize];
-for chan = 1:gridSize
-    txt = num2str(trodeLabels(chan));
-    t = text(locs(chan,1),locs(chan,2),locs(chan,3),txt,'FontSize',10,'HorizontalAlignment','center','VerticalAlignment','middle');
-    set(t,'clipping','on');
-end
+% 
+% gridSize = 64;
+% trodeLabels = [1:gridSize];
+% for chan = 1:gridSize
+%     txt = num2str(trodeLabels(chan));
+%     t = text(locs(chan,1),locs(chan,2),locs(chan,3),txt,'FontSize',10,'HorizontalAlignment','center','VerticalAlignment','middle');
+%     set(t,'clipping','on');
+% end
 
 % DJC - 10-18-2017 - for perfect pitch slide
 % chans = [22 30];

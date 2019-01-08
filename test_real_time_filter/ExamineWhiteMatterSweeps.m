@@ -28,8 +28,8 @@ for ind = filesVec
     
                 % set parameters for fit function
                 plotIt = 1;
-            f_range = [10 30];
-            smooth_span = 13;
+            f_range = [12 20];
+            smooth_span = 51;
             phase_calculation(awinsPos,t,smooth_span,f_range,fsRawSignal,plotIt);
     
     if plotFFT

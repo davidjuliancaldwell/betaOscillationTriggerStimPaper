@@ -3,16 +3,7 @@
 % input of about 15 Hz, set RMS,
 % ECO1.data(:,1) has the raw input signal
 % Wave.data(:,4) has the beta signal
-close all;clear all;clc
-load('betaStimTest_WMsweep.mat')
-
-%%
-% example find phase difference 
-% peak to peak difference = 3028-3019 in ms @ 13 Hz
-freq = 13;
-timeDelay = (3027-3018)/1e3;
-phaseDiffRad = timeDelay*freq*2*pi
-phaseDiffDeg = phaseDiffRad*180/pi
+load(fullfile(folderTestFilter,'BetaStim-1.mat'))
 %%
 a = ECO1.data(:,1);
 figure
@@ -48,15 +39,15 @@ plot(c)
 vline([timeStamps])
 xlabel('samples')
 
-%% find peaks 8-9-2017 
+%% find peaks 8-9-2017
 
 [max,ind] = findpeaks(a,fs1,'minpeakdistance',0.04,'minpeakheight',0);
 [max_2,ind_2] = findpeaks(c,fs1,'minpeakdistance',0.04,'minpeakheight',0);
 
 
 %%
-clear all
-load('BetaStim-2.mat')
+clearvars a fs1 t1 b c d timeStamps timeStamps_c
+load(fullfile(folderTestFilter,'BetaStim-2.mat'))
 %%
 a = ECO1.data(:,1);
 figure
@@ -88,12 +79,12 @@ fig1.Position = [447.6667 786.3333 1408 420];
 xlim([1.0e5*0.9590 1.0e5*1.0268]);
 ylim([-0.09 0.09]);
 
-%% find peaks 8-9-2017 
+%% find peaks 8-9-2017
 
 [max,ind] = findpeaks(a,fs1,'minpeakdistance',0.04,'minpeakheight',0.01);
 [max_2,ind_2] = findpeaks(c,fs1,'minpeakdistance',0.04,'minpeakheight',0.01);
 
-% add on seven samples for stim delay 
+% add on seven samples for stim delay
 samps_add = round(1e3*7/fs2);
 ind = ind + samps_add;
 ind_2 = ind_2 + samps_add;

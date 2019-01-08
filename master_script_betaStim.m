@@ -5,22 +5,57 @@
 % David.J.Caldwell
 
 cd(fileparts(which('master_script_betaStim')));
-locationsDir = pwd;
-folderData = fullfile(locationsDir,'data');
-folderCoords = fullfile(locationsDir,'coordinates');
-folderPlots = fullfile(locationsDir,'plots');
 
-saveIt = 1;
+setup_environment
 
-%% build tables with stimulation locations
+saveIt = 0;
+generateIntermediateData = 0;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+if generateIntermediateData
+    %% build tables with stimulation locations
+    
+    A_BuildStimTablesFirst6
+    
+    A_BuildStimTablesSubj7
+    
+    %% extract peak to peak
+    B_ExtractNeuralData_PP_reref
+    
+    %% extract phase
+    % this can take a long time
+    B_phaseCalc_allChans_processed
+    
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-A_BuildStimTablesFirst6
+%% plot histograms of phase delivery
+burstHistogram_generation
 
-A_BuildStimTablesSubj7
-
-%% extract peak to peak
-B_ExtractNeuralData_PP_reref
-
-%% plot cortex
-
+%% plot cortex with peak to peak
 C_PlotBrains_PP
+
+
+%% plot phases
+% phase on cortex
+plotPhase_distributions_cortex
+
+% phase for each channel, each subject
+plotPhase_distributions_looping_allChans
+
+%% plot phases and EPs together
+
+phase_vs_peak
+
+%% supplementary example fits
+plot_example_subject_phases
+
+%% supplementary oscilloscope test
+examineExampleSigs
+
+examinerandomSubjectDelivery
+
+extractOscope
+
+
+

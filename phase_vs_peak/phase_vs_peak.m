@@ -2,17 +2,6 @@
 %
 % David.J.Caldwell 10.2.2018
 
-close all;clear all;clc
-inputdir = getenv('OUTPUT_DIR');
-
-baseDir = fullfile(inputdir,'\BetaTriggeredStim\PhaseDelivery');
-addpath(baseDir);
-baseDir2 = fullfile(inputdir,'\BetaTriggeredStim\PeaktoPeakEP');
-addpath(baseDir2);
-
-OUTPUT_DIR = fullfile(inputdir,'\BetaTriggeredStim\phaseVSpeak\plots');
-TouchDir(OUTPUT_DIR);
-
 SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'};
 % valueSet = {{'s',180,1,[54 62],[1 49 58 59],[44 45 46 47 48 52 53 55 60 61 63],53},...
 %     {'m',[0 180],2,[55 56],[1 2 3 31 57],[39 40 47 48 63 64],64},...
@@ -119,8 +108,8 @@ for sid = SIDSint
     peakPhaseRep = [];
     indexVec = [];
     
-    load(strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat']))
-    load([sid '_phaseDelivery_allChans' modifierPhase '.mat']);
+    load(fullfile(folderEP,strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat'])))
+    load(fullfile(folderPhase,[sid '_phaseDelivery_allChans' modifierPhase '.mat']));
     
     fprintf(['running for subject ' sid '\n']);
     
@@ -284,11 +273,9 @@ for sid = SIDS(end-1:end)
     chans(ismember(chans, badsTotal) | ~ismember(chans,goodEPs)) = [];
     Montage.MontageTokenized = {'Grid(1:64)'};
     
-    
-    
-    load(strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat']))
-    load([sid '_phaseDelivery_allChans' modifierPhase '.mat']);
-    
+        
+    load(fullfile(folderEP,strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat'])))
+    load(fullfile(folderPhase,[sid '_phaseDelivery_allChans' modifierPhase '.mat']));
     fprintf(['running for subject ' sid '\n']);
     
     %%
@@ -375,8 +362,8 @@ for sid = SIDS(end-1)
     chans(ismember(chans, badsTotal) | ~ismember(chans,goodEPs)) = [];
     Montage.MontageTokenized = {'Grid(1:64)'};
     
-    load(strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat']))
-    load([sid '_phaseDelivery_allChans' modifierPhase '.mat']);
+    load(fullfile(folderEP,strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat'])))
+    load(fullfile(folderPhase,[sid '_phaseDelivery_allChans' modifierPhase '.mat']));
     
     fprintf(['running for subject ' sid '\n']);
     
@@ -476,8 +463,9 @@ for sid = SIDS
     chans(ismember(chans, badsTotal)) = [];
     Montage.MontageTokenized = {'Grid(1:64)'};
     
-    load(strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat']))
-    load([sid '_phaseDelivery_allChans' modifierPhase '.mat']);
+    
+    load(fullfile(folderEP,strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat'])))
+    load(fullfile(folderPhase,[sid '_phaseDelivery_allChans' modifierPhase '.mat']));
     
     fprintf(['running for subject ' sid '\n']);
     
@@ -563,8 +551,9 @@ for sid = SIDS(end-1:end)
     chans(ismember(chans, badsTotal)) = [];
     Montage.MontageTokenized = {'Grid(1:64)'};
     
-    load(strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat']))
-    load([sid '_phaseDelivery_allChans' modifierPhase '.mat']);
+    
+    load(fullfile(folderEP,strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat'])))
+    load(fullfile(folderPhase,[sid '_phaseDelivery_allChans' modifierPhase '.mat']));
     
     fprintf(['running for subject ' sid '\n']);
     

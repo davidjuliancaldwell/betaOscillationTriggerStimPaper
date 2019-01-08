@@ -26,7 +26,7 @@ M = containers.Map(SIDS,valueSet,'UniformValues',false);
 modifier = '-reref-50';
 %SIDS = {'d5cd55'}
 
-saveFig = 1;
+saveFig = 0;
 %%
 for sid = SIDS
     
@@ -48,27 +48,27 @@ for sid = SIDS
     load(strcat(subjid,['epSTATS-PP-sig' modifier '.mat']))
     
     if (strcmpi(sid,'0b5a2ePlayback'))
-        load(fullfile(getSubjDir('0b5a2e'), 'trodes.mat'));
+        load(fullfile(folderCoords,'0b5a2e','trodes.mat'));
         subjid = '0b5a2e';
     else
-        load(fullfile(getSubjDir(subjid),'trodes.mat'))
+        load(fullfile(folderCoords,sid,'trodes.mat'))
     end
     
     %% plotting average deflection
     
     if strcmp(type,'s')
         index = 1;
-        plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,OUTPUT_DIR)
+        plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,folderPlots)
         
     elseif strcmp(type,'m')
         
         for index = 1:2
-            plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,OUTPUT_DIR)
+            plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,folderPlots)
         end
         
     elseif strcmp(type,'t')
         for index = [1,2,4]
-            plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,OUTPUT_DIR)
+            plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,folderPlots)
             
         end
     end
