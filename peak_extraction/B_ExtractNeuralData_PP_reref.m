@@ -1,19 +1,13 @@
 %% constants
-close all; clear all;clc
-%clear all
-%% parameters
+% parameters
 
-cd(fileparts(which('B_ExtractNeuralData_PP_reref')));
-locationsDir = pwd;
 Z_Constants
-SUB_DIR = fullfile(myGetenv('subject_dir'));
-
 SUB_DIR = META_DIR;
 
 %% additional options
 
 savePlot = 0;
-saveIt = 1;
+saveIt = 0;
 plotIt = 0;
 plotItTrials = 0;
 plotItStimArtifact = 0;
@@ -58,9 +52,7 @@ for idx = 1:8
             t_min = 0.005;
             t_max = 0.036;
         case '7dbdec'
-            rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64];
-            tp = strcat(SUB_DIR,'\7dbdec\data\d7\7dbdec_BetaTriggeredStim');
-            
+            rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64];            
             stims = [11 12];
             chans = [4 5 14];
             goods = sort([4 5 10 13]);
@@ -82,7 +74,6 @@ for idx = 1:8
             bads = [1 9 10 35 43];
             
         case '702d24'
-            block = 'BetaPhase-4';
             rerefChans = [1:4 6:12 15:22 24 25:27 33:40 41:43 45:51 53:58 62:64];
             betaChan = 5;
             stims = [13 14];
@@ -105,7 +96,6 @@ for idx = 1:8
             t_max = 0.06;
         case '0b5a2e' % added DJC 7-23-2015            
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
-            
             stims = [22 30];
             %             chans = [23 31 21 14 15 32 40];
             % DJC 2-5-2016 - prototype just on channel 23
@@ -146,11 +136,10 @@ for idx = 1:8
     %% load in the trigger data
 
     if strcmp(sid,'0b5a2ePlayback')
-        load(fullfile(META_DIR, ['0b5a2e' '_tables.mat']), 'bursts', 'fs', 'stims');
+        load(fullfile(META_DIR, ['0b5a2e_tables.mat']), 'bursts', 'fs', 'stims');
         delay = 577869;
     else
-        load(fullfile(META_DIR, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
-        
+        load(fullfile(META_DIR, [sid '_tables.mat']), 'bursts', 'fs', 'stims'); 
     end
     % drop any stims that happen in the first 500 milliseconds
     stims(:,stims(2,:) < fs/2) = [];
@@ -198,7 +187,7 @@ for idx = 1:8
         achan = chan - grp*16;
         
         if achan==1 || achan == 2
-            load(fullfile(SUB_DIR,sid,[block '.mat']),ev);
+            load(fullfile(folderData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
         end
         eco = dataStruct.data(:,achan);

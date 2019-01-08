@@ -2,9 +2,6 @@
 %close all;clear all;clc
 
 Z_Constants;
-SUB_DIR = fullfile(myGetenv('subject_dir'));
-
-
 %% Load in the trigger data
 %DJC 7/20/2015 - changed tp to fit David paths
 % modified 12/15/2015 to try and work with 0b5a2e
@@ -131,7 +128,7 @@ for index = 7:8
     
     %% save the result to intermediate file for future use
     % added mod
-    save(fullfile(META_DIR, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
+    save(fullfile(folderData, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
     
     
 end

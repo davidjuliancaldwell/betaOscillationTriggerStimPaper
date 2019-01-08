@@ -2,8 +2,6 @@
 %close all; clear all;clc
 
 Z_Constants;
-SUB_DIR = fullfile(myGetenv('subject_dir'));
-
 %% Load in the trigger data
 
 for index = 1:6
@@ -127,7 +125,7 @@ for index = 1:6
     
     %% save the result to intermediate file for future use
     if saveIt
-        save(fullfile(META_DIR, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
+        save(fullfile(folderData, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
     end
     
 end

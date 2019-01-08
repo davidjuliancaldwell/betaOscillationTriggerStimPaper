@@ -8,11 +8,19 @@ cd(fileparts(which('master_script_betaStim')));
 locationsDir = pwd;
 folderData = fullfile(locationsDir,'data');
 folderCoords = fullfile(locationsDir,'coordinates');
+folderPlots = fullfile(locationsDir,'plots');
 
-saveIt = 0;
+saveIt = 1;
 
 %% build tables with stimulation locations
 
 A_BuildStimTablesFirst6
 
 A_BuildStimTablesSubj7
+
+%% extract peak to peak
+B_ExtractNeuralData_PP_reref
+
+%% plot cortex
+
+C_PlotBrains_PP

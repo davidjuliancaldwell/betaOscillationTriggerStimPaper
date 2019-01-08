@@ -1,14 +1,7 @@
 %% plot peak to peak differences on individual cortical surfaces
 
-close all; clear all;clc
 Z_Constants;
-baseDir = fullfile(prefixDirectory,'\Data\Output\BetaTriggeredStim\PeaktoPeakEP');
-addpath(baseDir);
-
-OUTPUT_DIR = fullfile(prefixDirectory,'\Data\Output\BetaTriggeredStim\PeaktoPeakEP\plots');
-TouchDir(OUTPUT_DIR);
 %% parameters
-
 
 SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'};
 % valueSet = {{'s',180,1,[54 62],[1 49 58 59],[44 45 46 47 48 52 53 55 60 61 63],53},...
@@ -19,7 +12,6 @@ SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePl
 %     {'t',[90,180],6,[56 64],[57:64],[46 48 54 55 63],55},...
 %     {'m',[90,270],7,[22 30],[24 25 29],[13 14 15 16 20 21 23 31 32 39 40],31},...
 %     {'m',[90,270],8,[22 30],[24 25 29],[13 14 15 16 20 21 23 31 32 39 40],31}};
-
 
 valueSet = {{'s',180,1,[54 62],[1 49 58 59],[44 45 46 52 53 55 60 61 63],53,2.5},...
     {'m',[0 180],2,[55 56],[1 2 3 31 57],[47 48 64],64,3},...
@@ -72,7 +64,6 @@ for sid = SIDS
         
         for index = 1:2
             plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,OUTPUT_DIR)
-            
         end
         
     elseif strcmp(type,'t')
