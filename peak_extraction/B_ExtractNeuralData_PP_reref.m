@@ -27,13 +27,12 @@ shuffleSigPP = 0;
 rerefMode = 'median';
 
 %%
-for idx = 4:4
+for idx = 1:8
     sid = SIDS{idx};
     
     switch(sid)
         
         case 'd5cd55'
-            block = 'Block-49';            
             stims = [54 62];
             chans = [53 61 63];
             
@@ -49,7 +48,6 @@ for idx = 4:4
             t_max = 0.06;
             
         case 'c91479'
-            block = 'BetaPhase-14';            
             stims = [55 56];
             chans = [64 63 48];
             betaChan = 64;
@@ -60,7 +58,6 @@ for idx = 4:4
             t_min = 0.005;
             t_max = 0.036;
         case '7dbdec'
-            block = 'BetaPhase-17';
             rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64];
             tp = strcat(SUB_DIR,'\7dbdec\data\d7\7dbdec_BetaTriggeredStim');
             
@@ -73,7 +70,6 @@ for idx = 4:4
             bads = [8 57];
             
         case '9ab7ab'
-            block = 'BetaPhase-3';            
             stims = [59 60];
             chans = [51 52 53 58 57];
             % chans = 29;
@@ -98,7 +94,6 @@ for idx = 4:4
             
             
         case 'ecb43e' % added DJC 7-23-2015
-            block = 'BetaPhase-3';
             rerefChans = [1:40 41:44 49:52];            
             stims = [56 64];
             chans = [47 55];
@@ -109,7 +104,6 @@ for idx = 4:4
             t_min = 0.006;
             t_max = 0.06;
         case '0b5a2e' % added DJC 7-23-2015            
-            block = 'BetaPhase-2';
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
             
             stims = [22 30];
@@ -128,7 +122,6 @@ for idx = 4:4
             t_min = 0.005;
             t_max = 0.06;
         case '0b5a2ePlayback' % added DJC 7-23-2015            
-            block = 'BetaPhase-4';
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
             
             stims = [22 30];
@@ -151,16 +144,10 @@ for idx = 4:4
     chans = [1:64];
     chans(ismember(chans, badsTotal)) = [];
     %% load in the trigger data
-    
-    tank = TTank;
-    tank.openTank(tp);
-    tank.selectBlock(block);
-    
+
     if strcmp(sid,'0b5a2ePlayback')
-        load(fullfile(META_DIR, ['0b5a2e' '_tables_modDJC.mat']), 'bursts', 'fs', 'stims');
+        load(fullfile(META_DIR, ['0b5a2e' '_tables.mat']), 'bursts', 'fs', 'stims');
         delay = 577869;
-    elseif strcmp(sid,'0b5a2e')
-        load(fullfile(META_DIR, [sid '_tables_modDJC.mat']), 'bursts', 'fs', 'stims');
     else
         load(fullfile(META_DIR, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
         
@@ -201,20 +188,22 @@ for idx = 4:4
     
     for chan = rerefChans
         
-        %% load in ecog data for that channel
-        fprintf('loading in ecog data for:%s \n',sid);
+       %% load in ecog data for that channel
+        fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
-        
         tic;
+        
         grp = floor((chan-1)/16);
-        ev = sprintf('ECO%d', grp+1);
+        ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
         
-        %         [eco, efs] = tdt_loadStream(tp, block, ev, achan);
-        [eco, info] = tank.readWaveEvent(ev, achan);
-        efs = info.SamplingRateHz;
+        if achan==1 || achan == 2
+            load(fullfile(SUB_DIR,sid,[block '.mat']),ev);
+            dataStruct = eval(ev);
+        end
+        eco = dataStruct.data(:,achan);
         eco = 4*eco';
-        
+        efs = dataStruct.info.SamplingRateHz;
         toc;
         
         fac = fs/efs;
