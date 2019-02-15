@@ -49,7 +49,6 @@ markerSize = 150;
 end
 
 
-
 % plots brain, and just the channels of interest
 load(fullfile(getSubjDir(subjid),'trodes.mat'))
 
@@ -75,8 +74,8 @@ for index = 1:length(chans)
     hold on
 end
 
-%legend([h(1),h(2)],{'Stimulation electrodes','Recording evoked potentials'})
-
+% legend([h(1),h(2),h(3)],{'Non Stimulation Electrodes','Stimulation Pair 2','Stimulation Pair 1'})
+set(gca,'fontsize',18)
 %legend([h(1),h(2)],{'Non Stimulation electrodes','Map EPs'})
 % 
 % gridSize = 64;

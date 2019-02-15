@@ -76,7 +76,7 @@ switch(mode)
             newChan = chanEven-chanOdd;
             output(:,i,:) = newChan;
         end
-        
+        output(:,8,:) = zeros(size(newChan));
         output = permute(output,permuteOrder);
     case 'selectedChannels'
         avg = mean(data(:,channelsToUse,:),2);

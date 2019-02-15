@@ -10,7 +10,7 @@ end
 
 destFile = '';
 
-if (lower(path(1)) == 'c'  || lower(path(1)) == 'd') && lower(path(2)) == ':'
+if (lower(path(1)) == 'c'  || lower(path(1)) == 'd' || lower(path(1))== 'g') && lower(path(2)) == ':'
     destFile = path;
 else
     if path(end) ~= '/' && path(end) ~= '\'

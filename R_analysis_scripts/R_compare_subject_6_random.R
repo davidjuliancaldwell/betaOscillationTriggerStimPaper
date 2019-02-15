@@ -24,7 +24,7 @@ chanInt = 55
 chanInt1 = paste0(6,chanInt)
 
 # ------------------------------------------------------------------------
-data <- read.table(here("Experiment","BetaTriggeredStim","betaStim_outputTable_50.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
+data <- read.table(here("data","output_table","betaStim_outputTable_50.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 data <- subset(data, magnitude<1500)
 data <- subset(data, magnitude>25)
@@ -36,6 +36,7 @@ data$numStims <- revalue(data$numStims, c("Test 1"="[1,2]","Test 2"="[3,4]","Tes
 #data$phaseClass <- revalue(data$phaseClass, c("90"=0,"270"=1))
 
 data$percentDiff = 0
+data$absDiff = 0
 for (name in unique(data$sid)){
   for (chan in unique(data[data$sid == name,]$channel)){
     for (numStimTrial in unique(data$numStims)){
@@ -46,7 +47,9 @@ for (name in unique(data$sid)){
       for (typePhase in unique(data$phaseClass)){
         percentDiff = 100*((data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude)-baseMean)/baseMean
         data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$percentDiff = percentDiff
-      }
+        absDiff = data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude-baseMean
+        data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$absDiff = absDiff
+         }
     }
   }
 }
@@ -69,7 +72,7 @@ summaryDataChan = subset(summaryData,summaryData$chan == chanInt1)
 # ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) +
 #   geom_boxplot(notch=TRUE)
 # Change the position
-p<-ggplot(dataSubjChanOnly, aes(x=numStims, y=percentDiff,fill=setToDeliverPhase)) + theme_light(base_size = 18) +
+p<-ggplot(dataSubjChanOnly, aes(x=numStims, y=absDiff,fill=setToDeliverPhase)) + theme_light(base_size = 18) +
   geom_boxplot(notch=TRUE,position=position_dodge(1)) +
   labs(x = 'Number of conditioning stimuli',colour = 'Experimental\nCondition',title = 'Changes in evoked potentials for hyperpolarizing, depolarizing, \n and random phase stimulation', y = 'Percent difference from baseline') +
   scale_fill_hue(name="Experimental\nCondition",
