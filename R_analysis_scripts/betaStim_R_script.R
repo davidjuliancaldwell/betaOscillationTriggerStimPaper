@@ -13,7 +13,7 @@ library('lmerTest')
 library('sjPlot')
 library('emmeans')
 
-savePlot = 0
+savePlot = 1
 figWidth = 8 
 figHeight = 6 
 
@@ -114,7 +114,7 @@ p2
 pd1 = position_dodge(0.2)
 pd2 = position_dodge(0.65)
 
-p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + theme_light(base_size = 18) +
+p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + theme_light(base_size = 14) +
   geom_point(position=position_jitterdodge(dodge.width=0.65, jitter.height=0, jitter.width=0.25),
              alpha=0.7) +
   stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.05, position=pd1) +
@@ -123,6 +123,10 @@ p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + the
   geom_hline(yintercept=0) +
   scale_color_hue(labels=c("depolarizing", "hyperpolarizing")) 
 p2
+figHeight = 4
+figWidth = 8
+ggsave(paste0("betaStim_dose_phase.png"), units="in", width=figWidth, height=figHeight, dpi=600)
+ggsave(paste0("betaStim_dose_phase.eps"), units="in", width=figWidth, height=figHeight, dpi=600)
 
 
 p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) + 

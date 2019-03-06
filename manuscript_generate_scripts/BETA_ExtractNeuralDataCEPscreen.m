@@ -1,24 +1,20 @@
-%% Extract neural data for screening CCEPs.
+%% Extract neural data for screening CEPs.
 
 % Constants
 %close all;clear all;clc
 Z_Constants
 saveIt = 0;
 SUB_DIR = fullfile(myGetenv('subject_dir'));
-
+cd(fileparts(which('BETA_ExtractNeuralDataCEPscreen')));
+locationsDir = pwd;
+META_DIR = fullfile(locationsDir, '..','data','stim_timing_data');
+%folderCoords = fullfile(locationsDir,'..','coordinates');
 %%
-for idx = 2:9
+for idx = 7:7
     sid = SIDS{idx};
     
     switch(sid)
-        
-        case '8adc5c'
-            % sid = SIDS{1};
-            tp = strcat(SUB_DIR,'\8adc5c\data\D6\8adc5c_BetaTriggeredStim');
-            block = 'Block-67';
-            stims = [31 32];
-            chans = [1:64];
-            
+                   
         case 'd5cd55'
             % sid = SIDS{2};
             % sid = SIDS{2};
@@ -337,8 +333,8 @@ for idx = 2:9
     % end
     % save(fullfile(META_DIR, [sid '_StatsCCEPhuntNOTNULL.mat']), 'zCell', 't','muCell','muMat','stdErrCell');
     %%
-    
-    smallMultiples(ECoGDataAverage,t,'type1',stimChans,'type2',betaChan,'average',1)
+   
+     smallMultiples(ECoGDataAverage,t,'type1',stimChans,'type2',betaChan,'average',1);
 
     clearvars winsReref ECoGData
 
