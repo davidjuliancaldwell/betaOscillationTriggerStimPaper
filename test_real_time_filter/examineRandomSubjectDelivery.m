@@ -1,21 +1,22 @@
 %% try 702d24, 0b5a2e
 %sid = input('what is the subject ID? ','s');
+Z_Constants
 
 sid = '0b5a2e';
 % c19479,7dbdec doesnt have continuous raw channel
 switch sid
     case 'd5cd55'
         betaChan = 53;
-        load('C:\Users\djcald.CSENETID\Data\ConvertedTDTfiles\d5cd55\betaStim_forBetaPhase.mat')
+        load(fullfile(folderECoGData,'d5cd55_ECoG'))
         subject_num = '1';
         
     case '702d24'
-        load('C:\Users\djcald.CSENETID\Data\ConvertedTDTfiles\702d24\betaStim_forBetaPhase.mat')
+        load(fullfile(folderECoGData,'702d24_ECoG'))
         betaChan = 5;
         subject_num = '5';
         
     case 'c91479'
-        load('C:\Users\djcald.CSENETID\Data\ConvertedTDTfiles\c91479\betaStim_forBetaPhase.mat')
+        load(fullfile(folderECoGData,'c91479_ECoG'))
         betaChan = 64;
         subject_num = '2';
         
@@ -26,22 +27,22 @@ switch sid
         
     case '0b5a2ePlayback'
         betaChan = 31;
-        load('C:\Users\djcald.CSENETID\Data\ConvertedTDTfiles\0b5a2e\BetaPhase-4')
+        load(fullfile(folderECoGData,'0b5a2e_Playback_ECoG'))
         
         subject_num = '7 playback';
         
     case '7dbdec'
-        load('C:\Users\djcald.CSENETID\Data\ConvertedTDTfiles\7dbdec\betaStim_forBetaPhase.mat')
+        load(fullfile(folderECoGData,'7dbdec_ECoG'))
         subject_num = '3';
         
         betaChan = 4;
     case 'ecb43e'
-        load('C:\Users\djcald.CSENETID\Data\ConvertedTDTfiles\ecb43e\betaStim_forBetaPhase.mat')
+        load(fullfile(folderECoGData,'ecb43e_ECoG'))
         subject_num = '6';
         
         betaChan = 55;
     case '9ab7ab'
-        load('C:\Users\djcald.CSENETID\Data\ConvertedTDTfiles\9ab7ab\betaStim_forBetaPhase.mat')
+        load(fullfile(folderECoGData,'9ab7ab_ECoG'))
         betaChan = 51;
         subject_num = '4';
 end
@@ -87,7 +88,8 @@ xlabel('time (ms)')
 ylabel('amplitude')
 set(gca,'fontsize', 14)
 title('Operation of Real Time Filtering with Stimulation Blanking')
-fig1.Position = [447.6667 786.3333 1408 420];
+fig1.Units = "inches";
+fig1.Position = [1 1 4 8];
 
 clearvars -except saveIt raw_sig filt_sig_decimate stimTimes fac fs1 fs2 filt_sig t1 timeStamps sid betaChan subject_num folderData folderECoGData folderTiming folderPhase folderEP folderCoords folderPlots folderTestFilter
 
@@ -117,7 +119,6 @@ preSamp = round(0.050 * fs1);
 postSamp = round(0.05 * fs1);
 
 utype = unique(bursts(5,:)); % unique stim types
-
 
 % change sample id
 stim_table_decimated = stims;
@@ -173,7 +174,7 @@ if strcmp(sid,'0b5a2e')
     cond_pstims = stim_table_decimated(:,cond_pts);
     
     
-    figure;
+    fig = figure;
     plot(t1,filt_sig_decimate,'linewidth',2)
     % vline([1e3*probe_times(2,:)/fs1],'k:');
     vline([1e3*pstims(2,:)/fs1],'k:')
@@ -183,16 +184,18 @@ if strcmp(sid,'0b5a2e')
         
         
         highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
-        
+
         
     end
     xlabel('time (ms)')
     ylabel('amplitude')
     set(gca,'fontsize', 14)
     title('Operation of Real Time Filtering with Stimulation Blanking')
-    fig1.Position = [447.6667 786.3333 1408 420];
+    fig.Units = "inches";
+    fig.Position = [0 0 4 8];
     %
 end
+return
 % look at bursts for stavros that are greate than five.
 %%
 
