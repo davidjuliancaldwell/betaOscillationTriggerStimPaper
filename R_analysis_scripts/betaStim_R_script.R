@@ -125,8 +125,8 @@ p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + the
 p2
 figHeight = 4
 figWidth = 8
-ggsave(paste0("betaStim_dose_phase.png"), units="in", width=figWidth, height=figHeight, dpi=600)
-ggsave(paste0("betaStim_dose_phase.eps"), units="in", width=figWidth, height=figHeight, dpi=600)
+ggsave(paste0("betaStim_dose_phase.png"), units="in", width=figWidth, height=figHeight,dpi=600)
+ggsave(paste0("betaStim_dose_phase.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 
 
 p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) + 
@@ -159,9 +159,32 @@ anova(fit.lmm3)
 tab_model(fit.lmm3)
 
 summary(fit.lmm3)
+
+figHeight = 4
+figWidth = 8
+png("betaStim_residuals_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
 plot(fit.lmm3)
-qqnorm(resid(fit.lmm3))
-qqline(resid(fit.lmm3))  #summary(fit.lmm2)
+dev.off()
+
+setEPS()
+postscript("betaStim_residuals_allSubjs.eps",width=figWidth,height=figHeight)
+ plot(fit.lmm3)
+dev.off()
+
+
+figHeight = 4
+figWidth = 8
+png("betaStim_qq_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
+qqPlot <- qqnorm(resid(fit.lmm3)) 
+qqline(resid(fit.lmm3))  #summary(fit.lmm2)dev.off()
+
+setEPS()
+postscript("betaStim_qq_allSubjs.eps",width=figWidth,height=figHeight)
+qqPlot <- qqnorm(resid(fit.lmm3)) 
+qqline(resid(fit.lmm3)) 
+dev.off()
+
+
 summary(glht(fit.lmm3,linfct=mcp(numStims="Tukey")))
 summary(glht(fit.lmm3,linfct=mcp(betaLabels="Tukey")))
 summary(glht(fit.lmm3,linfct=mcp(phaseClass="Tukey")))

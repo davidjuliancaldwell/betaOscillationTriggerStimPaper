@@ -4,3 +4,8 @@
 *~
 *.mex*
 *.mat
+*.eps
+*.png
+*.tiff
+*.svg
+*.rHistory
