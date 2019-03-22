@@ -177,6 +177,7 @@ figWidth = 8
 png("betaStim_qq_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
 qqPlot <- qqnorm(resid(fit.lmm3)) 
 qqline(resid(fit.lmm3))  #summary(fit.lmm2)dev.off()
+dev.off()
 
 setEPS()
 postscript("betaStim_qq_allSubjs.eps",width=figWidth,height=figHeight)

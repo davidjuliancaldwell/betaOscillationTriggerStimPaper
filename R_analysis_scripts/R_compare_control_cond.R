@@ -80,17 +80,22 @@ p<-ggplot(dataSubjChanOnly, aes(x=numStims, y=magnitude,fill=sid)) + theme_light
   labs(x = 'Number of conditioning stimuli',colour = 'closed loop vs. control',title = 'Closed loop vs. control cortical evoked potentials', y = expression(paste("Voltage (",mu,"V)"))) +
   scale_fill_hue(name="Experimental\nCondition",
                       breaks=c("0b5a2e", "0b5a2ePlayBack"),
-                      labels=c("closed-loop", "control")) + 
+                      labels=c("Closed-loop", "Control")) + 
   ylim(0,max(dataSubjChanOnly$magnitude+20))
   p
 
+  figHeight = 6
+  figWidth = 8
+  ggsave(paste0("betaStim_control_subj_7.png"), units="in", width=figWidth, height=figHeight,dpi=600)
+  ggsave(paste0("betaStim_control_subj_7.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+  
   
   p2<-ggplot(dataSubjChanOnly, aes(x=numStims, y=magnitude,fill=sid)) + theme_light(base_size = 18) +
     geom_violin(position=position_dodge(1)) +
     labs(x = 'Number of conditioning stimuli',colour = 'closed loop vs. control',title = 'Closed loop vs. control cortical evoked potentials', y = expression(paste("Voltage (",mu,"V)"))) +
     scale_fill_hue(name="Experimental\nCondition",
                    breaks=c("0b5a2e", "0b5a2ePlayBack"),
-                   labels=c("closed-loop", "control")) + 
+                   labels=c("Closed-loop", "Control")) + 
     ylim(0,max(dataSubjChanOnly$magnitude+20))
   p2
   

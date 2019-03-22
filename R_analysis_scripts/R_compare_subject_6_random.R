@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------------
-setwd('C:/Users/david/SharedCode/MATLAB_ECoG_code/Experiment/BetaTriggeredStim/')
+setwd('C:/Users/david/SharedCode/betaStimPaper')
 
 library('Hmisc')
 library('nlme')
@@ -74,9 +74,14 @@ summaryDataChan = subset(summaryData,summaryData$chan == chanInt1)
 # Change the position
 p<-ggplot(dataSubjChanOnly, aes(x=numStims, y=absDiff,fill=setToDeliverPhase)) + theme_light(base_size = 18) +
   geom_boxplot(notch=TRUE,position=position_dodge(1)) +
-  labs(x = 'Number of conditioning stimuli',colour = 'Experimental\nCondition',title = 'Changes in evoked potentials for hyperpolarizing, depolarizing, \n and random phase stimulation', y = 'Percent difference from baseline') +
+  labs(x = 'Number of conditioning stimuli',colour = 'Experimental\nCondition',title = 'Changes in EPs for hyperpolarizing, \n depolarizing, and \n random phase stimulation', y = 'Percent difference from baseline') +
   scale_fill_hue(name="Experimental\nCondition",
                  breaks=c("12345","270","90"),
-                 labels=c("random","depolarizing","hyperpolarizing")) 
+                 labels=c("Random","Depolarizing","Hyperpolarizing")) 
 p
+figHeight = 6
+figWidth = 8
+ggsave(paste0("betaStim_control_subj_6.png"), units="in", width=figWidth, height=figHeight,dpi=600)
+ggsave(paste0("betaStim_control_subj_6.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+
 

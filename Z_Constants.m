@@ -4,3 +4,5 @@ prefixDirectory = locationsDir;
 
 folderTiming = fullfile(prefixDirectory,'data','stim_timing_data');
 folderECoGData = fullfile(prefixDirectory,'data','ECoG_data');
+folderCoords = fullfile(prefixDirectory,'coordinates');
+folderPlots = fullfile(prefixDirectory,'output_plots');
