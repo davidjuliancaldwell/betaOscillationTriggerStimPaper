@@ -104,7 +104,7 @@ p<-ggplot(dataSubjChanOnly, aes(x=numStims, y=magnitude,fill=sid)) + theme_light
 # ------------------------------------------------------------------------
 
 
-fit.lm    = lm(magnitude ~ numStims+sid + numStims*sid,data=dataSubjChanOnly)
+fit.lm    = lm(magnitude ~ numStims+sid + numStims:sid,data=dataSubjChanOnly)
 
 summary(fit.lm)
 plot(fit.lm)

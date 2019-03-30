@@ -13,7 +13,7 @@ library('lmerTest')
 library('sjPlot')
 library('emmeans')
 
-savePlot = 1
+savePlot = 0
 figWidth = 8 
 figHeight = 6 
 
@@ -143,11 +143,11 @@ p2 + geom_hline(yintercept=0) + theme_classic()
 
 #
 ############ BEST ONE RIGHT NOW
-fit.lmm3 = lme4::lmer(percentDiff~numStims+phaseClass + betaLabels + + numStims*betaLabels + numStims*phaseClass + (1 | sid/channel) ,data=summaryData)
+fit.lmm3 = lme4::lmer(percentDiff~numStims+phaseClass + betaLabels + + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=summaryData)
 #fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels + (1 | sid/channel) ,data=dataNoBaseline)
 
-#fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels  + numStims*betaLabels + numStims*phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
-fit.lmm3 = lmerTest::lmer(absDiff~numStims+phaseClass + betaLabels  + numStims*betaLabels + numStims*phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
+#fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels  + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
+fit.lmm3 = lmerTest::lmer(absDiff~numStims+phaseClass + betaLabels  + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
 
 RIaS = unlist(ranef(fit.lmm3))
 FixedEff = fixef(fit.lmm3)
