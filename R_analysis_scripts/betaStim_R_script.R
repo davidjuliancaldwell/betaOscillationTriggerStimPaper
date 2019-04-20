@@ -13,7 +13,7 @@ library('lmerTest')
 library('sjPlot')
 library('emmeans')
 
-savePlot = 0
+savePlot = 1
 figWidth = 8 
 figHeight = 6 
 
@@ -111,6 +111,8 @@ p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + the
   geom_hline(yintercept=0) 
 p2
 
+
+#### this is the plot for the paper 
 pd1 = position_dodge(0.2)
 pd2 = position_dodge(0.65)
 
@@ -119,14 +121,42 @@ p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + the
              alpha=0.7) +
   stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.05, position=pd1) +
   stat_summary(fun.y=median, geom="point", size=2, position=pd1) +  
-  labs(x = 'Number of conditioning stimuli',colour = 'delivered phase',title = 'Dose dependence as a function of phase of stimulation',y = 'Percent difference from baseline')+ 
+  labs(x = 'Number of Conditioning Stimuli',colour = 'Delivered Phase',title = 'Dose Dependence as a Function of Phase of Stimulation',y = 'Percent Difference from Baseline')+ 
   geom_hline(yintercept=0) +
-  scale_color_hue(labels=c("depolarizing", "hyperpolarizing")) 
+  scale_color_hue(labels=c("Depolarizing", "Hyperpolarizing")) 
 p2
 figHeight = 4
 figWidth = 8
+
+if(savePlot){
 ggsave(paste0("betaStim_dose_phase.png"), units="in", width=figWidth, height=figHeight,dpi=600)
 ggsave(paste0("betaStim_dose_phase.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+}
+
+
+#### this is the other plot for the paper 
+
+pd1 = position_dodge(0.2)
+pd2 = position_dodge(0.65)
+
+p2 <- ggplot(summaryData, aes(x=as.numeric(numStims), y=percentDiff)) + theme_light(base_size = 14) +
+      geom_jitter(width=0.2,alpha=0.5) + geom_smooth(method=lm) +
+  stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.1, position=pd1) +
+  stat_summary(fun.y=median, geom="point", size=5, position=pd1) +  
+  labs(x = 'Number of Conditioning Stimuli',title = 'Dose Dependent Change in CEPs',y = 'Percent Difference from Baseline')+ 
+  geom_hline(yintercept=0) +
+  scale_x_continuous(breaks=c(3, 4, 5),labels=c("[1,2]","[3,4]","[5,inf)"))
+p2
+figHeight = 4
+figWidth = 8
+
+
+
+if(savePlot){
+  ggsave(paste0("betaStim_dose.png"), units="in", width=figWidth, height=figHeight,dpi=600)
+  ggsave(paste0("betaStim_dose.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+}
+
 
 
 p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) + 
@@ -162,6 +192,7 @@ summary(fit.lmm3)
 
 figHeight = 4
 figWidth = 8
+if(savePlot){
 png("betaStim_residuals_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
 plot(fit.lmm3)
 dev.off()
@@ -184,7 +215,7 @@ postscript("betaStim_qq_allSubjs.eps",width=figWidth,height=figHeight)
 qqPlot <- qqnorm(resid(fit.lmm3)) 
 qqline(resid(fit.lmm3)) 
 dev.off()
-
+}
 
 summary(glht(fit.lmm3,linfct=mcp(numStims="Tukey")))
 summary(glht(fit.lmm3,linfct=mcp(betaLabels="Tukey")))
