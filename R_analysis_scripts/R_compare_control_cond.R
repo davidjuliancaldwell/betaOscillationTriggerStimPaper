@@ -15,10 +15,11 @@ library('here')
 library('lmerTest')
 library('sjPlot')
 library('emmeans')
+library('wesanderson')
 
 rootDir = here()
 
-savePlot = 0
+savePlot = 1
 figWidth = 8 
 figHeight = 6 
 
@@ -78,10 +79,11 @@ summaryDataChan = subset(summaryData,summaryData$chan == chanInt1 | summaryData$
 p<-ggplot(dataSubjChanOnly, aes(x=numStims, y=magnitude,fill=sid)) + theme_light(base_size = 18) +
   geom_boxplot(notch=TRUE,position=position_dodge(1)) +
   labs(x = 'Number of conditioning stimuli',colour = 'closed loop vs. control',title = 'Closed loop vs. control cortical evoked potentials', y = expression(paste("Voltage (",mu,"V)"))) +
-  scale_fill_hue(name="Experimental\nCondition",
-                      breaks=c("0b5a2e", "0b5a2ePlayBack"),
-                      labels=c("Closed-loop", "Control")) + 
-  ylim(0,max(dataSubjChanOnly$magnitude+20))
+  scale_fill_manual(name="Experimental\nCondition",
+                    breaks=c("0b5a2e", "0b5a2ePlayBack"),
+                    labels=c("Closed-loop", "Control"),
+                    values=wes_palette(n=2, name="GrandBudapest1")) +
+  ylim(0,max(dataSubjChanOnly$magnitude+20)) 
   p
 
   figHeight = 6
@@ -96,11 +98,9 @@ p<-ggplot(dataSubjChanOnly, aes(x=numStims, y=magnitude,fill=sid)) + theme_light
     scale_fill_hue(name="Experimental\nCondition",
                    breaks=c("0b5a2e", "0b5a2ePlayBack"),
                    labels=c("Closed-loop", "Control")) + 
-    ylim(0,max(dataSubjChanOnly$magnitude+20))
+    ylim(0,max(dataSubjChanOnly$magnitude+20)) 
   p2
   
-  
-
 # ------------------------------------------------------------------------
 
 
