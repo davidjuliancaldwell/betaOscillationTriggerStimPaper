@@ -3,16 +3,19 @@
 % input of about 15 Hz, set RMS,
 % ECO1.data(:,1) has the raw input signal
 % Wave.data(:,4) has the beta signal
+close all;clear all;clc
+Z_Constants 
+
 load(fullfile(folderTestFilter,'BetaStim-1.mat'))
 %%
-a = ECO1.data(:,1);
+a = 4*ECO1.data(:,1);
 figure
 fs1 = ECO1.info.SamplingRateHz;
 
 t1 = 1e3*[0:length(a)-1]/fs1;
 
 plot(t1,a)
-b = Wave.data(:,3);
+b = 4*Wave.data(:,3);
 
 figure
 plot(b)
@@ -49,35 +52,34 @@ xlabel('samples')
 clearvars a fs1 t1 b c d timeStamps timeStamps_c
 load(fullfile(folderTestFilter,'BetaStim-2.mat'))
 %%
-a = ECO1.data(:,1);
+a = 4*ECO1.data(:,1);
 figure
 plot(a)
-b = Wave.data(:,3);
+b = 4*Wave.data(:,3);
 fs1 = ECO1.info.SamplingRateHz;
 fs2 = Wave.info.SamplingRateHz;
 d = SMon.data(:,2);
 
-figure
-plot(b)
 c = decimate(b,2); % decimate because it's stored at double the rate of Eco
 
 t1 = 1e3*[0:length(c)-1]/fs1;
 fig1 = figure;
-plot(t1,a,'linewidth',2)
 hold on
-plot(t1,c,'linewidth',2)
+plot(t1,1e3*c,'linewidth',2)
+plot(t1,1e3*a,'linewidth',2)
 timeStamps = find(d>0);
 timeStamps = 1e3*((timeStamps/2)/fs1);
 vline([timeStamps],'k:');
 
-legend({'Raw Signal','Filtered Signal','Stimulation Trigger'})
-xlabel('time (ms)')
-ylabel('amplitude')
+legend({'Filtered Signal','Raw Signal','Stimulation Trigger'})
+xlabel('Time (ms)')
+ylabel(['Amplitude (mV)'])
 set(gca,'fontsize', 14)
 title('Operation of Real Time Filtering with Stimulation Blanking')
-fig1.Position = [447.6667 786.3333 1408 420];
-xlim([1.0e5*0.9590 1.0e5*1.0268]);
-ylim([-0.09 0.09]);
+fig1.Units = "Inches"
+fig1.Position = [0 0 8 4];
+xlim([1.0e5*1.057 1.0e5*1.074]);
+%ylim([-0.09 0.09]);
 
 %% find peaks 8-9-2017
 

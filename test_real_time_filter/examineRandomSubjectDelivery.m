@@ -1,22 +1,25 @@
 %% try 702d24, 0b5a2e
 %sid = input('what is the subject ID? ','s');
+close all;clear all;clc
+
 Z_Constants
+saveIt = 0;
 
 sid = '0b5a2e';
 % c19479,7dbdec doesnt have continuous raw channel
 switch sid
     case 'd5cd55'
         betaChan = 53;
-        load(fullfile(folderECoGData,'d5cd55_ECoG'))
+        load(fullfile(folderECoGData,'d5cd55_forBetaPhase'))
         subject_num = '1';
         
     case '702d24'
-        load(fullfile(folderECoGData,'702d24_ECoG'))
+        load(fullfile(folderECoGData,'702d24_forBetaPhase'))
         betaChan = 5;
         subject_num = '5';
         
     case 'c91479'
-        load(fullfile(folderECoGData,'c91479_ECoG'))
+        load(fullfile(folderECoGData,'c91479_forBetaPhase'))
         betaChan = 64;
         subject_num = '2';
         
@@ -32,17 +35,17 @@ switch sid
         subject_num = '7 playback';
         
     case '7dbdec'
-        load(fullfile(folderECoGData,'7dbdec_ECoG'))
+        load(fullfile(folderECoGData,'7dbdec_forBetaPhase'))
         subject_num = '3';
         
         betaChan = 4;
     case 'ecb43e'
-        load(fullfile(folderECoGData,'ecb43e_ECoG'))
+        load(fullfile(folderECoGData,'ecb43e_forBetaPhase'))
         subject_num = '6';
         
         betaChan = 55;
     case '9ab7ab'
-        load(fullfile(folderECoGData,'9ab7ab_ECoG'))
+        load(fullfile(folderECoGData,'9ab7ab_forBetaPhase'))
         betaChan = 51;
         subject_num = '4';
 end
@@ -57,9 +60,9 @@ formatSpec = 'ECO%d.data(:,%d)';
 chanBlockInt = sprintf(formatSpec,grp+1,achan);
 
 %         [eco, efs] = tdt_loadStream(tp, block, ev, achan);
-raw_sig = eval(chanBlockInt);
+raw_sig = 4.*eval(chanBlockInt);
 
-filt_sig = Wave.data(:,3);
+filt_sig = 4.*Wave.data(:,3);
 fs1 = ECO1.info.SamplingRateHz;
 fs2 = Wave.info.SamplingRateHz;
 stim_times = SMon.data(:,2);
@@ -94,9 +97,6 @@ fig1.Position = [1 1 4 8];
 clearvars -except saveIt raw_sig filt_sig_decimate stimTimes fac fs1 fs2 filt_sig t1 timeStamps sid betaChan subject_num folderData folderECoGData folderTiming folderPhase folderEP folderCoords folderPlots folderTestFilter
 
 % here come the burst tables
-Z_Constants;
-setup_environment;
-
 if strcmp(sid,'0b5a2ePlayback')
     load(fullfile(folderTiming, ['0b5a2e_tables.mat']), 'bursts', 'fs', 'stims');
     delay = 577869;
@@ -175,52 +175,49 @@ if strcmp(sid,'0b5a2e')
     
     
     fig = figure;
-    plot(t1,filt_sig_decimate,'linewidth',2)
+    plot(t1,1e6*filt_sig_decimate,'linewidth',2)
     % vline([1e3*probe_times(2,:)/fs1],'k:');
     vline([1e3*pstims(2,:)/fs1],'k:')
     vline([1e3*cond_pstims(2,:)/fs1],'r:');
     %legend({'Filtered Signal','Null Probes','Cond Probes'})
-    for i = 1:size(bursts_dec_sub,2)
-        
-        
-        highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
-
-        
+    for i = 1:size(bursts_dec_sub,2)  
+        highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window     
     end
-    xlabel('time (ms)')
-    ylabel('amplitude')
+    xlabel('Time (ms)')
+    ylabel('Amplitude (\muV)')
+    xlim([4.79e5 4.83e5])
     set(gca,'fontsize', 14)
     title('Operation of Real Time Filtering with Stimulation Blanking')
     fig.Units = "inches";
-    fig.Position = [0 0 4 8];
+    fig.Position = [0 0 8 4];
     %
 end
-return
+
 % look at bursts for stavros that are greate than five.
 %%
 
 % bursts == 3 for ecb43e, otherwise 0,1, for 0b5a2e
-[indices] = find((bursts(4,:) >= 5) & bursts(5,:) == 1);
+[indices] = find((bursts(4,:) >= 5) & bursts(5,:) == 0);
 
 indices_rand = datasample(indices,4,'Replace',false);
 %
 fig1 = figure;
 fig1.Units = 'inches';
-fig1.Position =   [10.4097 8.2153 7.5347 5.7083];
+fig1.Position =   [0 0 4 4];
 
 for i = 1:4
     subplot(2,2,i)
     hold on
     axis tight
     
-    plot(t,conditioning_epoched_filt{indices_rand(i)})
-    plot(t,mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
+    plot(1e3*t,1e6*conditioning_epoched_filt{indices_rand(i)})
+    plot(1e3*t,1e6*mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
     vline(0)
-    set(gca,'fontsize',12)
+    set(gca,'fontsize',10)
 end
-xlabel('time (ms)')
-ylabel('amplitude')
-subtitle(['Filtered beta signal during beta burst for subject ' subject_num]);
+xlabel('Time (ms)')
+ylabel(['Amplitude (\mu V)'])
+%subtitle(['Filtered beta signal during beta burst for subject ' subject_num]);
 %title('Filtered Signal')
 if saveIt
     SaveFig(folderPlots, sprintf(['betaBurst-subj-%s-v3'], subject_num), 'eps', '-r600');
@@ -233,8 +230,8 @@ for i = 1:4
     hold on
     axis tight
     
-    plot(t,conditioning_epoched_filt{indices_rand(i)})
-    plot(t,mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
+    plot(1e3*t,conditioning_epoched_filt{indices_rand(i)})
+    plot(1e3*t,mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
     vline(0)
     set(gca,'fontsize',12)
 end
@@ -245,8 +242,8 @@ for i = 1:4
     figure
     subplot(2,1,1)
     hold on
-    plot(t,conditioning_epoched_filt{indices_rand(i)})
-    plot(t,mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
+    plot(1e3*t,conditioning_epoched_filt{indices_rand(i)})
+    plot(1e3*t,mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
     vline(0)
     xlabel('time (ms)')
     ylabel('amplitude')
@@ -254,8 +251,8 @@ for i = 1:4
     
     subplot(2,1,2)
     hold on
-    plot(t,conditioning_epoched_raw{indices_rand(i)})
-    plot(t,mean(conditioning_epoched_raw{indices_rand(i)},2),'k','linewidth',2)
+    plot(1e3*t,conditioning_epoched_raw{indices_rand(i)})
+    plot(1e3*t,mean(conditioning_epoched_raw{indices_rand(i)},2),'k','linewidth',2)
     ylim([-1e-4 1e-4])
     vline(0)
     xlabel('time (ms)')

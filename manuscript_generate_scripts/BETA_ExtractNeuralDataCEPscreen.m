@@ -10,7 +10,7 @@ locationsDir = pwd;
 META_DIR = fullfile(locationsDir, '..','data','stim_timing_data');
 %folderCoords = fullfile(locationsDir,'..','coordinates');
 %%
-for idx = 7:7
+for idx = 1:7
     sid = SIDS{idx};
     
     switch(sid)
