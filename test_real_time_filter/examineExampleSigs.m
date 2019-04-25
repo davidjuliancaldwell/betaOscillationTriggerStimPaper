@@ -69,14 +69,14 @@ plot(t1,1e3*c,'linewidth',2)
 plot(t1,1e3*a,'linewidth',2)
 timeStamps = find(d>0);
 timeStamps = 1e3*((timeStamps/2)/fs1);
-vline([timeStamps],'k:');
+vlineAx = vline([timeStamps],'k:');
 
 legend({'Filtered Signal','Raw Signal','Stimulation Trigger'})
 xlabel('Time (ms)')
 ylabel(['Amplitude (mV)'])
 set(gca,'fontsize', 14)
 title('Operation of Real Time Filtering with Stimulation Blanking')
-fig1.Units = "Inches"
+fig1.Units = "Inches";
 fig1.Position = [0 0 8 4];
 xlim([1.0e5*1.057 1.0e5*1.074]);
 %ylim([-0.09 0.09]);
