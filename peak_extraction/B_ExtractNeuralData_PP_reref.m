@@ -225,7 +225,7 @@ for idx = 1:8
             error 'unknown sid';
         end
         
-        presamps = round(0.100*efs);
+        presamps = round(0.05*efs);
         postsamps = round(0.120*efs);
         
         ptis = round(stims(2,pts)/fac);
@@ -296,7 +296,7 @@ for idx = 1:8
             error 'unknown sid';
         end
         
-        presamps = round(0.100*efs);
+        presamps = round(0.05*efs);
         postsamps = round(0.120*efs);
         
         ptis = round(stims(2,pts)/fac);
@@ -330,7 +330,7 @@ for idx = 1:8
         nullType = 2;
         
         for typei = 1:length(types)
-            awins = wins-repmat(mean(wins(t<-0.005 & t>-0.1,:),1), [size(wins, 1), 1]);
+            awins = wins-repmat(mean(wins(t<-0.005 & t>-0.05,:),1), [size(wins, 1), 1]);
             
             probes = pstims(5,:) < .5*fs & bursts(5,pstims(4,:))==types(typei);
             
@@ -575,7 +575,7 @@ for idx = 1:8
         
     end
     if saveIt
-        save(fullfile(folderEP, [sid 'epSTATS-PP-sig-reref-100.mat']), 'dataForPPanalysis','kruskalWallisStats');
+        save(fullfile(folderEP, [sid 'epSTATS-PP-sig-reref-50.mat']), 'dataForPPanalysis','kruskalWallisStats');
         %close all;
         fprintf('saved %s:\n',sid);
         

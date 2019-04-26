@@ -12,8 +12,9 @@ library('here')
 library('lmerTest')
 library('sjPlot')
 library('emmeans')
+library('dplyr')
 
-savePlot = 1
+savePlot = 0
 figWidth = 8 
 figHeight = 6 
 
@@ -21,6 +22,10 @@ figHeight = 6
 
 data <- read.table(here("data","output_table","betaStim_outputTable_50.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
+
+summaryDataCount <- data %>% 
+  group_by(sid,setToDeliverPhase,numStims,channel) %>% tally()
+
 data <- subset(data, magnitude<1500)
 data <- subset(data, magnitude>25)
 
@@ -55,13 +60,13 @@ for (name in unique(data$sid)){
 sapply(data,class)
 #summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,channel), function(x) mean(x[,"percentDiff"]))
 
-# confirm nothing below 150 uV 
 summaryData = ddply(data, .(sid,phaseClass,numStims,channel,betaLabels), summarize, magnitude = mean(magnitude))
 
 summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
 
 dataNoBaseline = data[data$numStims != "Base",]
 dataSubjOnly <- subset(data,data$sid=='0b5a2e')
+
 
 # ------------------------------------------------------------------------
 
@@ -136,23 +141,37 @@ ggsave(paste0("betaStim_dose_phase.eps"), units="in", width=figWidth, height=fig
 
 #### this is the other plot for the paper 
 
+colors = c("#AD0000","#FF3535","#FF9999")
+  
 pd1 = position_dodge(0.2)
 pd2 = position_dodge(0.65)
 
-p2 <- ggplot(summaryData, aes(x=as.numeric(numStims), y=percentDiff)) + theme_light(base_size = 14) +
-      geom_jitter(width=0.2,alpha=0.5) + geom_smooth(method=lm) +
-  stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.1, position=pd1) +
-  stat_summary(fun.y=median, geom="point", size=5, position=pd1) +  
+# p2 <- ggplot(summaryData, aes(x=as.numeric(numStims), y=percentDiff,color=as.numeric(numStims))) + theme_light(base_size = 14) +
+#       geom_jitter(width=0.2,alpha=0.5,aes(colour=colors)) + geom_smooth(method=lm) +
+#   stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.1, position=pd1) +
+#   stat_summary(fun.y=median, geom="point", size=5, position=pd1) +  
+#   labs(x = 'Number of Conditioning Stimuli',title = 'Dose Dependent Change in CEPs',y = 'Percent Difference from Baseline')+ 
+#   geom_hline(yintercept=0) +
+#   scale_x_continuous(breaks=c(3, 4, 5),labels=c("[1,2]","[3,4]","[5,inf)")) +
+#   scale_fill_manual(values = colors)
+# p2
+# figHeight = 4
+# figWidth = 8
+
+p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=numStims)) + theme_light(base_size = 14) +
+  geom_jitter(width=0.2,alpha=0.5) + geom_smooth(method=lm,aes(group=1)) +
+  stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.1, position=pd1,colour="#666666") +
+  stat_summary(fun.y=median, geom="point", size=5, position=pd1,colour="#666666") +  
   labs(x = 'Number of Conditioning Stimuli',title = 'Dose Dependent Change in CEPs',y = 'Percent Difference from Baseline')+ 
   geom_hline(yintercept=0) +
-  scale_x_continuous(breaks=c(3, 4, 5),labels=c("[1,2]","[3,4]","[5,inf)"))
+  scale_color_manual(values = colors) + theme(legend.position="none")
 p2
 figHeight = 4
 figWidth = 8
 
 
-
 if(savePlot){
+  ggsave(paste0("betaStim_dose.svg"), units="in", width=figWidth, height=figHeight,dpi=600)
   ggsave(paste0("betaStim_dose.png"), units="in", width=figWidth, height=figHeight,dpi=600)
   ggsave(paste0("betaStim_dose.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }

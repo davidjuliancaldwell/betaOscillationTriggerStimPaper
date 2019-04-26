@@ -27,6 +27,10 @@ if generateIntermediateData
     B_phaseCalc_allChans_processed
     
 end
+
+%% generate table for linear mixed model
+
+multipleSubj_GLMM_script_PP
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% plot histograms of phase delivery
@@ -34,7 +38,6 @@ burstHistogram_generation
 
 %% plot cortex with peak to peak
 C_PlotBrains_PP
-
 
 %% plot phases
 % phase on cortex
@@ -44,7 +47,6 @@ plotPhase_distributions_cortex
 plotPhase_distributions_looping_allChans
 
 %% plot phases and EPs together
-
 phase_vs_peak
 
 %% supplementary example fits
