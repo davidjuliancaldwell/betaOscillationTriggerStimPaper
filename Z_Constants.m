@@ -7,3 +7,4 @@ folderECoGData = fullfile(prefixDirectory,'data','ECoG_data');
 folderCoords = fullfile(prefixDirectory,'coordinates');
 folderPlots = fullfile(prefixDirectory,'output_plots');
 folderTestFilter = fullfile(prefixDirectory,'test_real_time_filter');
+folderPhase = fullfile(prefixDirectory,'data','phase_data');

@@ -4,8 +4,9 @@
 
 % David.J.Caldwell 8.26.2018
 %%
-%close all;clear all;clc
+close all;clear all;clc
 %close all
+Z_Constants
 
 SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'};
 valueSet = {{'s',180,1,[54 62],[1 49 58 59],53},{'m',[0 180],2,[55 56],[2 3 31 57],64},{'s',180,3,[11 12],[57],4},...
@@ -30,7 +31,7 @@ fThresholdMax = 19.99; % Hz
 %fThresholdMin = 10.01; % Hz
 %fThresholdMax = 29.99; % Hz
 
-SIDS = {'0b5a2e'};
+SIDS = {'c91479'};
 
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -64,8 +65,9 @@ for sid = SIDS
     %chans = [39 40 47 48 63 64];
     chans = betaChan;
     
-    chans = 14;
-    
+    %chans = [14,21,23,31];
+     chans = [48 47 47 54 64];
+
     if strcmp(type,'m') || strcmp(type,'t')
         if rawPlot
             for chan = chans

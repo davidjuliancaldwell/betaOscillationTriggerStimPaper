@@ -176,8 +176,6 @@ if(savePlot){
   ggsave(paste0("betaStim_dose.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
 
-
-
 p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) + 
   geom_boxplot(mapping = aes(x = numStims, y = percentDiff,fill=phaseClass),
                position=position_dodge(0.8),notch=TRUE)  + 
@@ -201,6 +199,7 @@ fit.lmm3 = lmerTest::lmer(absDiff~numStims+phaseClass + betaLabels  + numStims:b
 RIaS = unlist(ranef(fit.lmm3))
 FixedEff = fixef(fit.lmm3)
 emm_s.t <- emmeans(fit.lmm3, pairwise ~ numStims | phaseClass)
+emm_s.t <- emmeans(fit.lmm3, pairwise ~ phaseClass | numStims)
 emm_s.t <- emmeans(fit.lmm3, pairwise ~ numStims | betaLabels)
 anova(fit.lmm3)
 

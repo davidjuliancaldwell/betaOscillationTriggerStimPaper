@@ -19,7 +19,7 @@ library('wesanderson')
 
 rootDir = here()
 
-savePlot = 1
+savePlot = 0
 figWidth = 8 
 figHeight = 6 
 
