@@ -8,7 +8,7 @@ The main script is ***master_script_betaStim.m***, which calls other sub scripts
 
 ### Finding stimuli timing
 
-The ***find_stims*** folder has code to figure out when the stimuli were delivered and build tables to help further data extraction. 
+The ***find_stims*** folder has code to figure out when the stimuli were delivered and build tables to help further data extraction.
 
 ---
 
@@ -34,3 +34,7 @@ The ***R_analysis_scripts*** folder contains the R scripts required to fit linea
 ### Filter analysis
 
 Code to analyze the performance of the real time filter on the TDT is in the ***test_real_time_filter*** folder
+
+---
+
+David J Caldwell, BSD-3 License
