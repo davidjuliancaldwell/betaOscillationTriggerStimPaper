@@ -15,9 +15,9 @@ generateIntermediateData = 0;
 if generateIntermediateData
     %% build tables with stimulation locations
     
-    A_BuildStimTablesFirst6
+    A_BuildStimTablesFirst5
     
-    A_BuildStimTablesSubj7
+    A_BuildStimTablesSubj6thru7
     
     %% extract peak to peak
     B_ExtractNeuralData_PP_reref

@@ -7,7 +7,7 @@ saveIt = 0;
 
 for sid = {'d5cd5','702d24','0b5a2e','0b5a2ePlayback','ecb43e','9ab7ab'}
     sid = sid{:};
-    % c19479,7dbdec doesnt have continuous raw channel
+    % c91479,7dbdec doesnt have continuous raw channel
     switch sid
         case 'd5cd55'
             betaChan = 53;

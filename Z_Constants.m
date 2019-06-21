@@ -8,3 +8,4 @@ folderCoords = fullfile(prefixDirectory,'coordinates');
 folderPlots = fullfile(prefixDirectory,'output_plots');
 folderTestFilter = fullfile(prefixDirectory,'test_real_time_filter');
 folderPhase = fullfile(prefixDirectory,'data','phase_data');
+folderEP = fullfile(prefixDirectory,'data','EP_data');

@@ -10,7 +10,7 @@ saveIt = 0;
 plotIt = 1;
 plotItTrials = 0;
 plotItStimArtifact = 0;
-chanInt = 31;
+chanInt = 64;
 labelChoice = 0;
 shuffleSig = 0;
 avgTrials = 0;
@@ -51,7 +51,11 @@ for idx = 1:8
             t_min = 0.005;
             t_max = 0.036;
         case '7dbdec'
-            rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64];            
+           % rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64]; how it
+           % was for paper
+           
+          rerefChans = [1:16 17:19 22:24 33:56 58:64]; % without doubling up        
+
             stims = [11 12];
             chans = [4 5 14];
             goods = sort([4 5 10 13]);
@@ -185,7 +189,7 @@ for idx = 1:8
         ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
         
-        if achan==1 || achan == 2
+        if achan==1 || achan == 2 || achan == 4 || achan == 6
             load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
         end
@@ -204,7 +208,7 @@ for idx = 1:8
             %         pts = stims(3,:)==0 & (stims(2,:) > 4.5e6);
             pts = stims(3,:)==0 & (stims(2,:) > 4.5e6) & (stims(2, :) > 36536266);
         elseif (strcmp(sid, 'c91479'))
-            pts = stims(3,:)==0;
+            %pts = stims(3,:)==0;
         elseif (strcmp(sid, '7dbdec'))
             pts = stims(3,:)==0;
         elseif (strcmp(sid, '9ab7ab'))
