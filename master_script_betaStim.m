@@ -8,20 +8,22 @@ cd(fileparts(which('master_script_betaStim')));
 
 setup_environment
 
-saveIt = 0;
+saveIt = 1;
 generateIntermediateData = 0;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 if generateIntermediateData
     %% build tables with stimulation locations
     
-    A_BuildStimTablesFirst5
+    A_BuildStimTablesFirst6
     
-    A_BuildStimTablesSubj6thru7
+    A_BuildStimTablesSubj7andPlayback
     
     %% extract peak to peak
     B_ExtractNeuralData_PP_reref
-    
+
+    multipleSubj_GLMM_script_PP
+
     %% extract phase
     % this can take a long time
     B_phaseCalc_allChans_processed

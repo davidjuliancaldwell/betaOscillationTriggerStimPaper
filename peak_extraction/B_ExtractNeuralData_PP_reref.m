@@ -5,8 +5,8 @@ Z_Constants
 
 %% additional options
 
-savePlot = 0;
-saveIt = 0;
+savePlot = 1;
+saveIt = 1;
 plotIt = 1;
 plotItTrials = 0;
 plotItStimArtifact = 0;
@@ -20,7 +20,7 @@ shuffleSigPP = 0;
 rerefMode = 'median';
 
 %%
-for idx = 1:8
+for idx = 6:6
     sid = SIDS{idx};
     
     switch(sid)
@@ -51,11 +51,11 @@ for idx = 1:8
             t_min = 0.005;
             t_max = 0.036;
         case '7dbdec'
-           % rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64]; how it
-           % was for paper
-           
-          rerefChans = [1:16 17:19 22:24 33:56 58:64]; % without doubling up        
-
+            % rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64]; how it
+            % was for paper
+            
+            rerefChans = [1:16 17:19 22:24 33:56 58:64]; % without doubling up
+            
             stims = [11 12];
             chans = [4 5 14];
             goods = sort([4 5 10 13]);
@@ -88,7 +88,7 @@ for idx = 1:8
             
             
         case 'ecb43e' % added DJC 7-23-2015
-            rerefChans = [1:40 41:44 49:52];            
+            rerefChans = [1:40 41:44 49:52];
             stims = [56 64];
             chans = [47 55];
             betaChan = 55;
@@ -97,7 +97,7 @@ for idx = 1:8
             
             t_min = 0.006;
             t_max = 0.06;
-        case '0b5a2e' % added DJC 7-23-2015            
+        case '0b5a2e' % added DJC 7-23-2015
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
             stims = [22 30];
             %             chans = [23 31 21 14 15 32 40];
@@ -114,7 +114,7 @@ for idx = 1:8
             bads = [24 25 29];
             t_min = 0.005;
             t_max = 0.06;
-        case '0b5a2ePlayback' % added DJC 7-23-2015            
+        case '0b5a2ePlayback' % added DJC 7-23-2015
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
             
             stims = [22 30];
@@ -137,12 +137,12 @@ for idx = 1:8
     chans = [1:64];
     chans(ismember(chans, badsTotal)) = [];
     %% load in the trigger data
-
+    
     if strcmp(sid,'0b5a2ePlayback')
         load(fullfile(folderTiming, ['0b5a2e_tables.mat']), 'bursts', 'fs', 'stims');
         delay = 577869;
     else
-        load(fullfile(folderTiming, [sid '_tables.mat']), 'bursts', 'fs', 'stims'); 
+        load(fullfile(folderTiming, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
     end
     % drop any stims that happen in the first 500 milliseconds
     stims(:,stims(2,:) < fs/2) = [];
@@ -180,7 +180,7 @@ for idx = 1:8
     
     for chan = rerefChans
         
-       %% load in ecog data for that channel
+        %% load in ecog data for that channel
         fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
         tic;
@@ -208,7 +208,7 @@ for idx = 1:8
             %         pts = stims(3,:)==0 & (stims(2,:) > 4.5e6);
             pts = stims(3,:)==0 & (stims(2,:) > 4.5e6) & (stims(2, :) > 36536266);
         elseif (strcmp(sid, 'c91479'))
-            %pts = stims(3,:)==0;
+            pts = stims(3,:)==0;
         elseif (strcmp(sid, '7dbdec'))
             pts = stims(3,:)==0;
         elseif (strcmp(sid, '9ab7ab'))
@@ -222,9 +222,6 @@ for idx = 1:8
             pts = stims(3,:) == 0;
         elseif (strcmp(sid, '0b5a2ePlayback'))
             pts = stims(3,:) == 0;
-        elseif (strcmp(sid,'3f2113'))
-            pts = stims(3,:) == 0;
-            
         else
             error 'unknown sid';
         end
@@ -243,10 +240,10 @@ for idx = 1:8
     
     switch(rerefMode)
         case 'mean'
-            rerefQuant = mean(winsReref,3);
+            rerefQuant = mean(winsReref(:,:,rerefChans),3);
             
         case 'median'
-            rerefQuant = median(winsReref,3);
+            rerefQuant = median(winsReref(:,:,rerefChans),3);
     end
     
     %% now do peak to peak
@@ -579,11 +576,11 @@ for idx = 1:8
         
     end
     if saveIt
-        save(fullfile(folderEP, [sid 'epSTATS-PP-sig-reref-50.mat']), 'dataForPPanalysis','kruskalWallisStats');
+        save(fullfile(folderEP, [sid 'epSTATS-PP-sig-reref-50-new.mat']), 'dataForPPanalysis','kruskalWallisStats');
         %close all;
         fprintf('saved %s:\n',sid);
         
-        clearvars -except idx SIDS folderPlots folderEP folderData savePlot saveIt plotIt plotItTrials rerefMode plotItStimArtifact chanInt labelChoice shuffleSig avgTrials numAvg smoothPP shuffleSigPP
+        clearvars -except idx SIDS folderECoGData folderTiming folderPlots folderEP folderData savePlot saveIt plotIt plotItTrials rerefMode plotItStimArtifact chanInt labelChoice shuffleSig avgTrials numAvg smoothPP shuffleSigPP
     end
 end
 

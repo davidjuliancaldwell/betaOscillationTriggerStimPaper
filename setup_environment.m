@@ -8,3 +8,4 @@ folderEP = fullfile(folderData,'EP_data');
 folderCoords = fullfile(locationsDir,'coordinates');
 folderPlots = fullfile(locationsDir,'plots');
 folderTestFilter = fullfile(locationsDir,'test_real_time_filter');
+folderOutput = fullfile(locationsDir,'output_table');

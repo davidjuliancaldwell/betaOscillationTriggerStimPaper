@@ -3,11 +3,7 @@
 %
 % David.J.Caldwell 9.19.2018
 
-close all;clear all;clc
-%clear all
-Z_Constants;
-SUB_DIR = fullfile(myGetenv('subject_dir'));
-OUTPUT_DIR = fullfile(myGetenv('OUTPUT_DIR'));
+setup_environment
 
 %% parameters
 
@@ -29,7 +25,7 @@ valueSet = {{'s',180,1,[54 62],[1 49 58 59],[44 45 46 52 53 55 60 61 63],53,2.5}
     {'s',180,3,[11 12],[57],[4 5 10 13],4,3.5},...
     {'s',270,4,[59 60],[1 9 10 35 43],[50 51 52 53 58],51,0.75},...
     {'m',[90,270],5,[13 14],[23 27 28 29 30 32 44 52 60],[5],5,0.75},...
-    {'t',[270,90,12345,12345],6,[56 64],[57:63],[47 48 54 55 63],55,1.75}...
+    {'t',[270,90,12345,12345],6,[56 64],[57:63],[47 48 54 55],55,1.75}...
     {'m',[90,270],7,[22 30],[24 25 29],[14 15 16 20 21 23 31 32 40],31,1.75},...
     {'m',[90,270],8,[22 30],[24 25 29],[14 15 16 20 21 23 31 32 40],31,1.75}};
 
@@ -94,7 +90,7 @@ for sid = SIDS(1:end)
     badsTotal = [stims bads];
     chans(ismember(chans, badsTotal) | ~ismember(chans,goodEPs)) = [];
     
-    load(strcat(subjid,['epSTATS-PP-sig' modifierEP '.mat']))
+    load(strcat(subjid,['epSTATS-PP-sig' modifierEP '-new.mat']))
     load([sid '_phaseDelivery_allChans' modifierPhase '.mat']);
     
     % here's where I pick those channels!
@@ -311,7 +307,9 @@ statarrayCount = grpstats(tableBetaStim,{'subjectNum','numStims','setToDeliverPh
 figure
 grpstats(totalMags',{categorical(numStims)'},0.05)
 
-%writetable(tableBetaStim,'betaStim_outputTable_50.csv');
+%writetable(tableBetaStim,'betaStim_outputTable_50_new.csv');
+fileNameWrite = fullfile(folderOutput,'betaStim_outputTable_50_new.csv');
+writetable(tableBetaStim,fileNameWrite);
 return
 % %%
 % numSubj = 7;

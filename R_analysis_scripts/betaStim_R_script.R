@@ -14,13 +14,13 @@ library('sjPlot')
 library('emmeans')
 library('dplyr')
 
-savePlot = 0
+savePlot = 1
 figWidth = 8 
 figHeight = 6 
 
 # ------------------------------------------------------------------------
 
-data <- read.table(here("data","output_table","betaStim_outputTable_50.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
+data <- read.table(here("data","output_table","betaStim_outputTable_50_new.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 
 summaryDataCount <- data %>% 

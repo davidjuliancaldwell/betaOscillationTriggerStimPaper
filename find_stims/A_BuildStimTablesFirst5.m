@@ -4,7 +4,7 @@
 Z_Constants;
 %% Load in the trigger data
 
-for index = 1:5
+for index = 6:6
     
     % select the subject from list
     sid = SIDS{index};

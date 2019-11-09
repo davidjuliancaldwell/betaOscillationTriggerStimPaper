@@ -2,7 +2,7 @@
 
 Z_Constants;
 %% parameters
-idxVec = [1:8];
+idxVec = [7:7];
 
 for idx = idxVec
     sid = SIDS{idx};
@@ -59,7 +59,7 @@ for idx = idxVec
     
     chans = [1:64];
     chans(ismember(chans, badsTotal)) = [];
-    
+    chans = 64;
     %% load in the trigger data
     
     
@@ -101,7 +101,7 @@ for idx = idxVec
         ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
         
-        if achan==1 || achan == 2
+        if achan==1 || achan == 2 
             load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
         end

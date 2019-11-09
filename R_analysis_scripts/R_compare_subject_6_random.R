@@ -16,7 +16,7 @@ library('lmerTest')
 
 rootDir = here()
 
-savePlot = 0
+savePlot = 1
 figWidth = 8 
 figHeight = 6 
 
@@ -24,7 +24,7 @@ chanInt = 55
 chanInt1 = paste0(6,chanInt)
 
 # ------------------------------------------------------------------------
-data <- read.table(here("data","output_table","betaStim_outputTable_50.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
+data <- read.table(here("data","output_table","betaStim_outputTable_50_new.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 data <- subset(data, magnitude<1500)
 data <- subset(data, magnitude>25)

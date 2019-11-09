@@ -3,13 +3,9 @@
 
 Z_Constants;
 %% Load in the trigger data
-%DJC 7/20/2015 - changed tp to fit David paths
-% modified 12/15/2015 to try and work with 0b5a2e
-
-% 5/24/2016 - DJC add 0a80cf
 
 % select the subject from list
-for index = 6:8
+for index = 6:6
     sid = SIDS{index};
     load([sid '_stim_table_data_file.mat'])
     
@@ -128,8 +124,9 @@ for index = 6:8
     
     %% save the result to intermediate file for future use
     % added mod
-    save(fullfile(folderData, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
-    
+    if saveIt
+        save(fullfile(folderData, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
+    end
     
 end
 
