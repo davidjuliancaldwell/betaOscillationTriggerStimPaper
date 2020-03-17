@@ -28,7 +28,7 @@ end
 %
 totalFig = figure;
 totalFig.Units = 'inches';
-totalFig.Position = [1 1 8 8];;
+totalFig.Position = [0 0 8 8];;
 CT = cbrewer('qual','Accent',8);
 CT = flipud(CT);
 

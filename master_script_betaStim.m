@@ -61,5 +61,5 @@ examinerandomSubjectDelivery
 
 extractOscope
 
-
-
+%% make baseline subject plots
+BETA_ExtractNeuralDataCEPScreen

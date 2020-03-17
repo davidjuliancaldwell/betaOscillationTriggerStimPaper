@@ -1,7 +1,3 @@
-%% constants
-% parameters
-
-Z_Constants
 
 %% additional options
 
@@ -10,7 +6,7 @@ saveIt = 1;
 plotIt = 1;
 plotItTrials = 0;
 plotItStimArtifact = 0;
-chanInt = 64;
+chanInt = 31;
 labelChoice = 0;
 shuffleSig = 0;
 avgTrials = 0;
@@ -20,15 +16,13 @@ shuffleSigPP = 0;
 rerefMode = 'median';
 
 %%
-for idx = 6:6
+for idx = 1:7
     sid = SIDS{idx};
     
     switch(sid)
         
         case 'd5cd55'
             stims = [54 62];
-            chans = [53 61 63];
-            
             rerefChans = [2:40];
             goods = sort([44 45 46 52 53 55 60 61 63]);
             betaChan = 53;
@@ -42,12 +36,10 @@ for idx = 6:6
             
         case 'c91479'
             stims = [55 56];
-            chans = [64 63 48];
             betaChan = 64;
             goods = sort([ 39 40 47 48 63 64]);
             bads = [1 2 3 31 57];
             rerefChans = [4:29 32:37 41:45 49:52 57:61 ];
-            
             t_min = 0.005;
             t_max = 0.036;
         case '7dbdec'
@@ -55,7 +47,6 @@ for idx = 6:6
             % was for paper
             
             rerefChans = [1:16 17:19 22:24 33:56 58:64]; % without doubling up
-            
             stims = [11 12];
             chans = [4 5 14];
             goods = sort([4 5 10 13]);
@@ -66,11 +57,8 @@ for idx = 6:6
             
         case '9ab7ab'
             stims = [59 60];
-            chans = [51 52 53 58 57];
-            % chans = 29;
             betaChan = 51;
             rerefChans = [2:8 10:40 45:48 54:56];
-            
             goods = sort([42 43 49 50 51 52 53 57 58]);
             t_min = 0.006;
             t_max = 0.06;
@@ -80,17 +68,14 @@ for idx = 6:6
             rerefChans = [1:4 6:12 15:22 24 25:27 33:40 41:43 45:51 53:58 62:64];
             betaChan = 5;
             stims = [13 14];
-            chans = [4 5 21];
             goods = [ 5 ];
             t_min = 0.008;
             t_max = 0.046;
             bads = [23 27 28 29 30 32 44 52 60];
             
-            
         case 'ecb43e' % added DJC 7-23-2015
             rerefChans = [1:40 41:44 49:52];
             stims = [56 64];
-            chans = [47 55];
             betaChan = 55;
             goods = sort([55 63 54 47 48]);
             bads = [57:64];
@@ -100,29 +85,14 @@ for idx = 6:6
         case '0b5a2e' % added DJC 7-23-2015
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
             stims = [22 30];
-            %             chans = [23 31 21 14 15 32 40];
-            % DJC 2-5-2016 - prototype just on channel 23
-            chans = [1:64];
-            %chans = [14 23 31];
-            %                         chans = [23];
-            %             chans = [14 15 23 24 26 33 34 35 39 40 42 43];
             betaChan = 23;
-            %goods = sort([12 13 14 15 16 20 21 23 31 32 39 40]);
             goods = [14 21 23 31];
-            
-            goods = [ 14 21 23];
             bads = [24 25 29];
             t_min = 0.005;
             t_max = 0.06;
         case '0b5a2ePlayback' % added DJC 7-23-2015
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
-            
             stims = [22 30];
-            %             chans = [23 31 21 14 15 32 40];
-            %             chans = [23 31];
-            %             chans = 23;
-            chans = [1:64];
-            %             chans = 40;
             betaChan = 31;
             goods = sort([12 13 14 15 16 21 23 31 32 39 40]);
             bads = [24 25 29];

@@ -1,8 +1,5 @@
-%% Constants
-
-Z_Constants;
 %% parameters
-idxVec = [7:7];
+idxVec = [1:7];
 
 for idx = idxVec
     sid = SIDS{idx};
