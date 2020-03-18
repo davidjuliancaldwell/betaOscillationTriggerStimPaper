@@ -1,6 +1,8 @@
 %% script to look at burst hists
 % written by DJC 1-8-2015
 
+saveIt = 1;
+
 for sidInd = 1:length(SIDS)
     sid = SIDS{sidInd};
     switch(sid)
@@ -63,8 +65,8 @@ for sidInd = 1:length(SIDS)
     end
     
     % get rid of d5cd55 bursts at beginning?
-    if strcmp(sid,'1')
-        bursts = bursts(:,(bursts(3,:)>4.5e6));
+    if strcmp(sid,'d5cd55')
+        bursts = bursts(:,(bursts(3,:)>36536266));
     end
     
     %%

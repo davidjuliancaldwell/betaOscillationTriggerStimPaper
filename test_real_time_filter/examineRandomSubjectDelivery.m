@@ -4,6 +4,7 @@ close all;clear all;clc
 
 setup_environment
 saveIt = 0;
+delayDelivery = 14; % 14 samp delay between trigger stim and delivery approximately @ 24404 Hz
 
 %for sid = {'d5cd5','702d24','0b5a2e','0b5a2ePlayback','ecb43e','9ab7ab'}
 for sid = {'0b5a2e'}
@@ -84,7 +85,7 @@ for sid = {'0b5a2e'}
     plot(t1,raw_sig,'linewidth',2)
     hold on
     plot(t1,filt_sig_decimate,'linewidth',2)
-    timeStamps = find(stim_times>0);
+    timeStamps = find(stim_times>0) + delayDelivery;
     timeStamps = 1e3*((timeStamps/2)/fs1);
     vline([timeStamps],'k:');
     
@@ -96,7 +97,7 @@ for sid = {'0b5a2e'}
     fig1.Units = "inches";
     fig1.Position = [1 1 4 8];
     
-    clearvars -except saveIt raw_sig filt_sig_decimate stimTimes fac fs1 fs2 filt_sig t1 timeStamps sid betaChan subject_num folderData folderECoGData folderTiming folderPhase folderEP folderCoords folderPlots folderTestFilter
+    clearvars -except delayDelivery saveIt raw_sig filt_sig_decimate stimTimes fac fs1 fs2 filt_sig t1 timeStamps sid betaChan subject_num folderData folderECoGData folderTiming folderPhase folderEP folderCoords folderPlots folderTestFilter
     
     % here come the burst tables
     if strcmp(sid,'0b5a2ePlayback')
@@ -105,6 +106,12 @@ for sid = {'0b5a2e'}
     else
         load(fullfile(folderTiming, [sid '_tables.mat']), 'bursts', 'fs', 'stims');
     end
+    
+    % add 14 samples to approximately account for the delay between the
+    % stimulation trigger command and actual registration
+    stims(2,:) = stims(2,:) + delayDelivery;
+    bursts(2,:) = bursts(2,:) + delayDelivery;
+    bursts(3,:) = bursts(3,:) + delayDelivery;
     
     % get epoch's along burst
     % adjust burst table to have 9th element which says which burst you are in
@@ -128,7 +135,7 @@ for sid = {'0b5a2e'}
     t = (-preSamp:postSamp) / fs1;
     
     if strcmp(sid,'d5cd55')
-        bursts = bursts(:,(bursts(3,:)>4.5e6));
+        bursts = bursts(:,(bursts(3,:)>36536266));
     end
     
     
@@ -167,14 +174,12 @@ for sid = {'0b5a2e'}
         pstims = stim_table_decimated(:,pts);
         types = unique(bursts(5,pstims(4,:)));
         
-        probes = pstims(5,:) < 0.250*fs & bursts(5,pstims(4,:))==types(typei);
-        probes = pstims(5,:) < 0.250*fs;
+        probes = pstims(5,:) < 0.5*fs & bursts(5,pstims(4,:))==types(typei);
         probe_times = pstims(:,probes);
         
         % conditioning
         cond_pts = stims(3,:) ==1;
         cond_pstims = stim_table_decimated(:,cond_pts);
-        
         
         fig = figure;
         subplot(2,1,1)
@@ -186,24 +191,30 @@ for sid = {'0b5a2e'}
         for i = 1:size(bursts_dec_sub,2)
             highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
         end
-       
-        xlim([4.79e5 4.83e5])
+        
+        xlim([7.8795e5 7.885e5])
+        ylim([-100 100])
         set(gca,'fontsize', 14)
-        title('Operation of Real Time Filtering with Stimulation Blanking')
+        title('Beta-filtered Signal')
+        
         fig.Units = "inches";
-        fig.Position = [0 0 8 4];
+        fig.Position = [0 0 8 6];
         subplot(2,1,2)
         plot(t1,1e6*raw_sig,'linewidth',2)
-                vline([1e3*pstims(2,:)/fs1],'k:')
+        vline([1e3*pstims(2,:)/fs1],'k:')
         vline([1e3*cond_pstims(2,:)/fs1],'r:');
         for i = 1:size(bursts_dec_sub,2)
             highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
         end
-               
-        xlim([4.79e5 4.83e5])
+        
+        xlim([7.8795e5 7.885e5])
+        ylim([-500 500])
         set(gca,'fontsize', 14)
         xlabel('Time (ms)')
         ylabel('Amplitude (\muV)')
+        title('Raw Signal')
+        sgtitle({'Operation of Real Time Filtering with Stimulation Blanking'})
+        
         %
     end
     
@@ -230,7 +241,7 @@ for sid = {'0b5a2e'}
                 hold on
                 axis tight
                 
-                plot(1e3*t,1e6*conditioning_epoched_filt{indices_rand(jj)})
+                plot(1e3*t,1e6*conditioning_epoched_filt{indices_rand(jj)},'color',[0.5 0.5 0.5])
                 plot(1e3*t,1e6*mean(conditioning_epoched_filt{indices_rand(jj)},2),'k','linewidth',2)
                 vline(0)
                 set(gca,'fontsize',10)
@@ -246,7 +257,74 @@ for sid = {'0b5a2e'}
             end
         end
     end
+    
+    %% make one subplot just for subj 0b5a2e
+    %
+    fig1 = figure;
+    fig1.Units = 'inches';
+    fig1.Position =   [0 0 8 6];
+    
+    [indices1] = find((bursts(4,:) >= 5) & bursts(5,:) == 0);
+    [indices2] = find((bursts(4,:) >= 5) & bursts(5,:) == 1);
+    
+    indices_rand = [datasample(indices1,2,'Replace',false) datasample(indices2,2,'Replace',false)];
+    
+    for jj = 1:4
+        
+        subplot(2,4,jj)
+        hold on
+        axis tight
+        plot(1e3*t,1e6*conditioning_epoched_filt{indices_rand(jj)},'color',[0.5 0.5 0.5])
+        plot(1e3*t,1e6*mean(conditioning_epoched_filt{indices_rand(jj)},2),'k','linewidth',2)
+        ylim([-150 150])
+        vline(0)
+        if jj == 1
+            
+            xlabel('Time (ms)')
+            ylabel(['Amplitude (\mu V)'])
+            title('Beta-filtered Signal')
+        end
+        if jj ~= 1
+            set(gca, 'XTick', []);
+            set(gca, 'YTick', []);
+        end
+        
+        
+        set(gca,'fontsize',10)
+        
+        subplot(2,4,4+jj)
+        hold on
+        axis tight
+        plot(1e3*t,1e6*conditioning_epoched_raw{indices_rand(jj)},'color',[0.5 0.5 0.5])
+        plot(1e3*t,1e6*mean(conditioning_epoched_raw{indices_rand(jj)},2),'k','linewidth',2)
+        ylim([-550 550])
+        if jj == 1
+            
+            xlabel('Time (ms)')
+            ylabel(['Amplitude (\mu V)'])
+            title('Raw Signal')
+        end
+        if jj ~= 1
+            set(gca, 'XTick', []);
+            set(gca, 'YTick', []);
+        end
+        
+        vline(0)
+        set(gca,'fontsize',10)
+    end
+    
+    
+    sgtitle('Filtered and Raw Trigger Channel for Bursts with > 5 stimuli')
+    if saveIt
+        SaveFig(folderPlots, sprintf(['betaBurst-subjComb-%s'], subject_num), 'eps', '-r600');
+        SaveFig(folderPlots, sprintf(['betaBurst-subjComb-%s'], subject_num), 'png', '-r600');
+        SaveFig(folderPlots, sprintf(['betaBurst-subjComb-%s'], subject_num), 'svg', '-r600');
+    end
+    %subtitle(['Filtered beta signal during beta burst for subject ' subject_num]);
+    %title('Filtered Signal')
+    
 end
+
 %% visualize
 
 % interest

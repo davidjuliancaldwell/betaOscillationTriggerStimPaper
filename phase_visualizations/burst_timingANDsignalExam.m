@@ -1,9 +1,9 @@
 %% script to look at burst hists
 % written by DJC 1-8-2015
 
-Z_Constants
+setup_environment
 %sid = input('what is is the subject sid\n','s');
-for sidInd = 1:length(SIDS)
+for sidInd = 1:1
     sid = SIDS{sidInd};
     switch(sid)
         case 'd5cd55'
@@ -65,11 +65,11 @@ for sidInd = 1:length(SIDS)
     
     % get rid of d5cd55 bursts at beginning?
     if strcmp(sid,'1')
-        bursts = bursts(:,(bursts(3,:)>4.5e6));
+        bursts = bursts(:,(bursts(3,:)>36536266));
     end
     
     %%
-    burst_hist(subject_num,bursts,typeCell,OUTPUT_DIR)
+    burst_hist(subject_num,bursts,typeCell,folderPlots)
     %burst_timing(sid,bursts)
     
 end

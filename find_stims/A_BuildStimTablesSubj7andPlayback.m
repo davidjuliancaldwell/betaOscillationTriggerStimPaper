@@ -1,11 +1,7 @@
-%% Build
-close all;clear all;clc
-
-Z_Constants;
 %% Load in the trigger data
 
 % select the subject from list
-for index = 6:6
+for index = 7:8
     sid = SIDS{index};
     load([sid '_stim_table_data_file.mat'])
     
