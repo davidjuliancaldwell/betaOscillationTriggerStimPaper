@@ -20,7 +20,7 @@ figHeight = 6
 
 # ------------------------------------------------------------------------
 
-dataNew <- read.table(here("data","output_table","betaStim_outputTable_50.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
+data <- read.table(here("data","output_table","betaStim_outputTable_50_new.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 
 summaryDataCount <- data %>% 
@@ -67,8 +67,8 @@ summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,c
 dataNoBaseline = data[data$numStims != "Base",]
 dataSubjOnly <- subset(data,data$sid=='0b5a2e')
 
-summaryDataNoPhase = ddply(data, .(sid,numStims,channel), summarize, magnitude = mean(magnitude))
-summaryDataNoPhase = ddply(data[data$numStims != "Base",] , .(sid,numStims,channel), summarize, percentDiff = mean(percentDiff))
+summaryDataNoPhase = ddply(data, .(sid,numStims,channel,betaLabels), summarize, magnitude = mean(magnitude))
+summaryDataNoPhase = ddply(data[data$numStims != "Base",] , .(sid,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
 
 
 # ------------------------------------------------------------------------
