@@ -3,7 +3,7 @@ function [] = plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid
 
 epThresholdMin = 25;
 epThresholdMax = 1500;
-epThresholdAverage = 150;
+epThresholdAverage = 50;
 
 cmap = cbrewer('seq','Purples',40);
 
