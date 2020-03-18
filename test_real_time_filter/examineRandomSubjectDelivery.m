@@ -2,10 +2,11 @@
 %sid = input('what is the subject ID? ','s');
 close all;clear all;clc
 
-Z_Constants
+setup_environment
 saveIt = 0;
 
-for sid = {'d5cd5','702d24','0b5a2e','0b5a2ePlayback','ecb43e','9ab7ab'}
+%for sid = {'d5cd5','702d24','0b5a2e','0b5a2ePlayback','ecb43e','9ab7ab'}
+for sid = {'0b5a2e'}
     sid = sid{:};
     % c91479,7dbdec doesnt have continuous raw channel
     switch sid
@@ -176,6 +177,7 @@ for sid = {'d5cd5','702d24','0b5a2e','0b5a2ePlayback','ecb43e','9ab7ab'}
         
         
         fig = figure;
+        subplot(2,1,1)
         plot(t1,1e6*filt_sig_decimate,'linewidth',2)
         % vline([1e3*probe_times(2,:)/fs1],'k:');
         vline([1e3*pstims(2,:)/fs1],'k:')
@@ -184,13 +186,24 @@ for sid = {'d5cd5','702d24','0b5a2e','0b5a2ePlayback','ecb43e','9ab7ab'}
         for i = 1:size(bursts_dec_sub,2)
             highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
         end
-        xlabel('Time (ms)')
-        ylabel('Amplitude (\muV)')
+       
         xlim([4.79e5 4.83e5])
         set(gca,'fontsize', 14)
         title('Operation of Real Time Filtering with Stimulation Blanking')
         fig.Units = "inches";
         fig.Position = [0 0 8 4];
+        subplot(2,1,2)
+        plot(t1,1e6*raw_sig,'linewidth',2)
+                vline([1e3*pstims(2,:)/fs1],'k:')
+        vline([1e3*cond_pstims(2,:)/fs1],'r:');
+        for i = 1:size(bursts_dec_sub,2)
+            highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
+        end
+               
+        xlim([4.79e5 4.83e5])
+        set(gca,'fontsize', 14)
+        xlabel('Time (ms)')
+        ylabel('Amplitude (\muV)')
         %
     end
     
@@ -236,27 +249,27 @@ for sid = {'d5cd5','702d24','0b5a2e','0b5a2ePlayback','ecb43e','9ab7ab'}
 end
 %% visualize
 
-% % interest
-% for i = 1:4
-%     figure
-%     subplot(2,1,1)
-%     hold on
-%     plot(1e3*t,conditioning_epoched_filt{indices_rand(i)})
-%     plot(1e3*t,mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
-%     vline(0)
-%     xlabel('time (ms)')
-%     ylabel('amplitude')
-%     title('Filtered Signal')
-%
-%     subplot(2,1,2)
-%     hold on
-%     plot(1e3*t,conditioning_epoched_raw{indices_rand(i)})
-%     plot(1e3*t,mean(conditioning_epoched_raw{indices_rand(i)},2),'k','linewidth',2)
-%     ylim([-1e-4 1e-4])
-%     vline(0)
-%     xlabel('time (ms)')
-%     ylabel('amplitude')
-%     title('Raw Signal')
-% end
+% interest
+for i = 1:4
+    figure
+    subplot(2,1,1)
+    hold on
+    plot(1e3*t,conditioning_epoched_filt{indices_rand(i)})
+    plot(1e3*t,mean(conditioning_epoched_filt{indices_rand(i)},2),'k','linewidth',2)
+    vline(0)
+    xlabel('time (ms)')
+    ylabel('amplitude')
+    title('Filtered Signal')
+    
+    subplot(2,1,2)
+    hold on
+    plot(1e3*t,conditioning_epoched_raw{indices_rand(i)})
+    plot(1e3*t,mean(conditioning_epoched_raw{indices_rand(i)},2),'k','linewidth',2)
+    ylim([-1e-4 1e-4])
+    vline(0)
+    xlabel('time (ms)')
+    ylabel('amplitude')
+    title('Raw Signal')
+end
 
 

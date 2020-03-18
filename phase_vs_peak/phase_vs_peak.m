@@ -56,7 +56,7 @@ modifierPhase = '_51samps_12_20_40ms_randomstart';
 
 %modifierPhase = '_13samps_10_30_40ms_randomstart';
 
-modifierEP = '-reref-50';
+modifierEP = '-reref-50-new';
 %SIDS = {'d5cd55'};
 
 % decide how to plot circles - std deviation or vector length
@@ -73,7 +73,7 @@ markerMin = 50;
 markerMax = 500;
 minData = 0;
 maxData = 1;
-epThresholdMaxMean = 150;
+epThresholdMaxMean = 100;
 epThresholdMin = 25;
 epThresholdMax = 1500;
 
@@ -227,6 +227,10 @@ title('Phase of delivery and CEP modulation')
 xlabel('Phase of delivery (degrees)')
 ylabel({'EP percent change from baseline','to >5 conditioning stimuli'})
 set(gca,'fontsize',24)
+
+% add in scale dots for markers 
+scatter(315,40,markerMin,[1 0 1],'filled','HandleVisibility','off')
+scatter(315,45,markerMax,[1 0 1],'filled','HandleVisibility','off')
 
 figure(figInd)
 xlabel('Phase of delivery (degrees)')

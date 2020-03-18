@@ -33,14 +33,23 @@ d = SMon.data(:,2);
 timeStamps = find(d>0)/2;
 timeStamps_c = 1e3*((timeStamps)/fs1);
 vline([timeStamps_c])
-xlabel('ms')
+legend({'Raw signal','Filtered Signal','Stimulation Trigger'})
+xlabel('Time (ms)')
+ylabel('Amplitude (V)')
+set(gca,'fontsize', 14)
+xlim([1.085e5 1.098e5])
+ylim([-0.25 0.25])
+title('Operation of Real Time Filtering with Stimulation Blanking')
+% Above is the one included in the manuscript !!!
 
+%%
 figure
 plot(a)
 hold on
 plot(c)
 vline([timeStamps])
 xlabel('samples')
+
 
 %% find peaks 8-9-2017
 

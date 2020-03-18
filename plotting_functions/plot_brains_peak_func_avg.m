@@ -1,25 +1,34 @@
-function [] = plot_brains_peak_func(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,index,saveFig,OUTPUT_DIR)
+function [] = plot_brains_peak_func_avg(dataForPPanalysis,subjid,sid,subjectNum,Grid,betaChan,stims,badsTotal,goodEPs,indices,saveFig,OUTPUT_DIR)
 %% plot differences
 
 epThresholdMin = 25;
 epThresholdMax = 1500;
-epThresholdAverage = 150;
+epThresholdAverage = 100;
 
 cmap = cbrewer('seq','Purples',40);
 
 w = nan(size(Grid, 1), 1);
+
 for i = 1:64
+    labelTotal = [];
+    keepsTotal = [];
+    magsTotal = [];
     if ~any(i==badsTotal) && any(i ==goodEPs)
-        mags = 1e6*dataForPPanalysis{i}{index}{1};
-        
-        mags(mags<epThresholdMin) = nan;
-        mags(mags>epThresholdMax) = nan;
-        
-        label= dataForPPanalysis{i}{index}{4};
-        keeps = dataForPPanalysis{i}{index}{5};
-        maxLabel = max(unique(label));
-        ppMax = nanmean(mags(label ==maxLabel & keeps));
+        for index = indices
+            mags = 1e6*dataForPPanalysis{i}{index}{1};
+            mags(mags<epThresholdMin) = nan;
+            mags(mags>epThresholdMax) = nan;
+            label= dataForPPanalysis{i}{index}{4};
+            keeps = dataForPPanalysis{i}{index}{5};
+            
+            labelTotal = [labelTotal label];
+            keepsTotal = [keepsTotal keeps];
+            magsTotal = [magsTotal mags];
+        end
+        maxLabel = max(unique(labelTotal));
+        ppMax = nanmean(magsTotal(labelTotal ==maxLabel & keepsTotal));
         w(i) = ppMax;
+        ppMax
     end
 end
 
@@ -59,17 +68,28 @@ end
 cmap = flipud(cbrewer('div','PiYG',40));
 
 w = nan(size(Grid, 1), 1);
+
 for i = 1:64
+    labelTotal = [];
+    keepsTotal = [];
+    magsTotal = [];
     if ~any(i==badsTotal) && any(i ==goodEPs)
-        mags = 1e6*dataForPPanalysis{i}{index}{1};
+        for index = indices
+            mags = 1e6*dataForPPanalysis{i}{index}{1};
+            
+            mags(mags<epThresholdMin) = nan;
+            mags(mags>epThresholdMax) = nan;
+            
+            label= dataForPPanalysis{i}{index}{4};
+            keeps = dataForPPanalysis{i}{index}{5};
+            
+            labelTotal = [labelTotal label];
+            keepsTotal = [keepsTotal keeps];
+            magsTotal = [magsTotal mags];
+        end
+        difference = 100*(nanmean(magsTotal(labelTotal ==3 & keepsTotal)) - nanmean(magsTotal(labelTotal ==0 & keepsTotal)))/nanmean(magsTotal(labelTotal ==0 & keepsTotal));
         
-        mags(mags<epThresholdMin) = nan;
-        mags(mags>epThresholdMax) = nan;
-        
-        label= dataForPPanalysis{i}{index}{4};
-        keeps = dataForPPanalysis{i}{index}{5};
-        difference = 100*(nanmean(mags(label ==3 & keeps)) - nanmean(mags(label ==0 & keeps)))/nanmean(mags(label ==0 & keeps));
-        if nanmean(mags(label ==0 & keeps)) > epThresholdAverage
+        if nanmean(magsTotal(labelTotal ==0 & keepsTotal)) > epThresholdAverage
             w(i) = difference;
         end
     end
@@ -93,10 +113,10 @@ leg = legend([stimulationPlot(1),stimulationPlot(2),betaChanPlot],...
 colormap(cmap);
 h = colorbar;
 if subjectNum == 8
-    title({['Subject 7 Playback'], ['Percent Baseline and Test Pulse (>5 stims) EP difference']})
+    title({['Subject 7 Playback'], ['Percent Baseline and Test Pulse (>5 stims) CEP difference']})
     
 else
-    title({['Subject ' num2str(subjectNum)], 'Percent Baseline and Test Pulse (>5 stims) EP difference'})
+    title({['Subject ' num2str(subjectNum)], 'Percent Baseline and Test Pulse (>5 stims) CEP difference'})
 end
 ylabel(h,'Percent Difference')
 set(gca,'fontsize', 14)

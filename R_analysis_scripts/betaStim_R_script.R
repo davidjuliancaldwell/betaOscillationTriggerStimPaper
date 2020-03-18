@@ -20,7 +20,7 @@ figHeight = 6
 
 # ------------------------------------------------------------------------
 
-data <- read.table(here("data","output_table","betaStim_outputTable_50_new.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
+dataNew <- read.table(here("data","output_table","betaStim_outputTable_50.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 
 summaryDataCount <- data %>% 
@@ -66,6 +66,9 @@ summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,c
 
 dataNoBaseline = data[data$numStims != "Base",]
 dataSubjOnly <- subset(data,data$sid=='0b5a2e')
+
+summaryDataNoPhase = ddply(data, .(sid,numStims,channel), summarize, magnitude = mean(magnitude))
+summaryDataNoPhase = ddply(data[data$numStims != "Base",] , .(sid,numStims,channel), summarize, percentDiff = mean(percentDiff))
 
 
 # ------------------------------------------------------------------------
@@ -158,7 +161,7 @@ pd2 = position_dodge(0.65)
 # figHeight = 4
 # figWidth = 8
 
-p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=numStims)) + theme_light(base_size = 14) +
+p2 <- ggplot(summaryDataNoPhase, aes(x=numStims, y=percentDiff,color=numStims)) + theme_light(base_size = 14) +
   geom_jitter(width=0.2,alpha=0.5) + geom_smooth(method=lm,aes(group=1)) +
   stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.1, position=pd1,colour="#666666") +
   stat_summary(fun.y=median, geom="point", size=5, position=pd1,colour="#666666") +  

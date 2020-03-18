@@ -1,12 +1,12 @@
 
 %% additional options
 
-savePlot = 1;
-saveIt = 1;
+savePlot = 0;
+saveIt = 0;
 plotIt = 1;
 plotItTrials = 0;
 plotItStimArtifact = 0;
-chanInt = 31;
+chanInt = 55;
 labelChoice = 0;
 shuffleSig = 0;
 avgTrials = 0;
@@ -16,7 +16,7 @@ shuffleSigPP = 0;
 rerefMode = 'median';
 
 %%
-for idx = 1:7
+for idx = 1:1
     sid = SIDS{idx};
     
     switch(sid)
@@ -202,8 +202,6 @@ for idx = 1:7
         ptis = round(stims(2,pts)/fac);
         
         t = (-presamps:postsamps)/efs;
-        
-        
         wins = squeeze(getEpochSignal(eco', ptis-presamps, ptis+postsamps+1));
         winsReref(:,:,chan) = wins;
     end

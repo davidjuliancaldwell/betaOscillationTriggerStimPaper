@@ -44,12 +44,13 @@ fThresholdMax = 19.99;
 
 %fThresholdMin = 10;
 %fThresholdMax = 29.99;
-epThresholdMag = 150;
+epThresholdMag = 100;
 
 markerMin = 50;
 markerMax = 200;
 minData = 0;
 maxData = 1;
+
 
 %%
 
