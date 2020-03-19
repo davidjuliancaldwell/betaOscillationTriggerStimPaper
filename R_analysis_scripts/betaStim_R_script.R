@@ -20,7 +20,7 @@ figHeight = 6
 
 # ------------------------------------------------------------------------
 
-data <- read.table(here("data","output_table","betaStim_outputTable_50_new.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
+data <- read.table(here("data","output_table","betaStim_outputTable_50_new_100_thresh.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 
 summaryDataCount <- data %>% 
@@ -193,11 +193,12 @@ p2 + geom_hline(yintercept=0) + theme_classic()
 
 #
 ############ BEST ONE RIGHT NOW
-fit.lmm3 = lme4::lmer(percentDiff~numStims+phaseClass + betaLabels + + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=summaryData)
+#fit.lmm3 = lme4::lmer(percentDiff~numStims+phaseClass + betaLabels + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=summaryData)
 #fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels + (1 | sid/channel) ,data=dataNoBaseline)
 
 #fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels  + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
-fit.lmm3 = lmerTest::lmer(absDiff~numStims+phaseClass + betaLabels  + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
+fit.lmm3 = lmerTest::lmer(absDiff~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (1|sid/channel) ,data=dataNoBaseline)
+
 
 RIaS = unlist(ranef(fit.lmm3))
 FixedEff = fixef(fit.lmm3)

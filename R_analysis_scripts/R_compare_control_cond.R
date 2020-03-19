@@ -28,7 +28,7 @@ chanInt1 = paste0(7,chanInt)
 chanInt2 = paste0(8,chanInt)
 
 # ------------------------------------------------------------------------
-data <- read.table(here("data","output_table","betaStim_outputTable_50_new.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
+data <- read.table(here("data","output_table","betaStim_outputTable_50_new_100_thresh.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 data <- subset(data, magnitude<1500)
 data <- subset(data, magnitude>25)
