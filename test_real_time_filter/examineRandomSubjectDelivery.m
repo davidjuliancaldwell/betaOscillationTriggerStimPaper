@@ -215,6 +215,40 @@ for sid = {'0b5a2e'}
         title('Raw Signal')
         sgtitle({'Operation of Real Time Filtering with Stimulation Blanking'})
         
+        fig2 = figure;
+        subplot(2,1,1)
+        plot(t1,1e6*filt_sig_decimate,'linewidth',2)
+        % vline([1e3*probe_times(2,:)/fs1],'k:');
+        vline([1e3*pstims(2,:)/fs1],'k:')
+        vline([1e3*cond_pstims(2,:)/fs1],'r:');
+        %legend({'Filtered Signal','Null Probes','Cond Probes'})
+        for i = 1:size(bursts_dec_sub,2)
+            highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
+        end
+        
+        xlim([5.2e4 5.39e4])
+        ylim([-100 100])
+        set(gca,'fontsize', 14)
+        title('Beta-filtered Signal')
+        
+        fig2.Units = "inches";
+        fig2.Position = [0 0 8 6];
+        subplot(2,1,2)
+        plot(t1,1e6*raw_sig,'linewidth',2)
+        vline([1e3*pstims(2,:)/fs1],'k:')
+        vline([1e3*cond_pstims(2,:)/fs1],'r:');
+        for i = 1:size(bursts_dec_sub,2)
+            highlight(gca, [1e3*bursts_dec_sub(2,i)/fs1 1e3*bursts_dec_sub(3,i)/fs1], [], [.5 .5 .5]) %this is the part that plots that stim window
+        end
+        
+        xlim([5.2e4 5.39e4])
+        ylim([-500 500])
+        set(gca,'fontsize', 14)
+        xlabel('Time (ms)')
+        ylabel('Amplitude (\muV)')
+        title('Raw Signal')
+        sgtitle({'Operation of Real Time Filtering with Stimulation Blanking'})
+        
         %
     end
     
