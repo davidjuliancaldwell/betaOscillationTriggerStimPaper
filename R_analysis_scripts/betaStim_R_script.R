@@ -14,12 +14,12 @@ library('sjPlot')
 library('emmeans')
 library('dplyr')
 
-savePlot = 1
+savePlot = 0
 figWidth = 8 
 figHeight = 6 
 
 # ------------------------------------------------------------------------
-
+here()
 data <- read.table(here("data","output_table","betaStim_outputTable_50_new_100_thresh.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
                    colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
 
@@ -39,6 +39,7 @@ data$numStims <- revalue(data$numStims, c("Test 1"="[1,2]","Test 2"="[3,4]","Tes
 
 data$percentDiff = 0
 data$absDiff = 0
+data$baseMean = 0
 for (name in unique(data$sid)){
   for (chan in unique(data[data$sid == name,]$channel)){
     for (numStimTrial in unique(data$numStims)){
@@ -51,7 +52,10 @@ for (name in unique(data$sid)){
         data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$percentDiff = percentDiff
         absDiff = data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude-baseMean
         data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$absDiff = absDiff
-        
+        # add in base maen
+        if (length(absDiff)){
+        data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$baseMean = baseMean
+        }
       }
     }
   }
@@ -198,6 +202,7 @@ p2 + geom_hline(yintercept=0) + theme_classic()
 
 #fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels  + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
 fit.lmm3 = lmerTest::lmer(absDiff~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (1|sid/channel) ,data=dataNoBaseline)
+fit.lmm4 = lmerTest::lmer(magnitude~baseMean+numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (1|sid/channel) ,data=dataNoBaseline)
 
 
 RIaS = unlist(ranef(fit.lmm3))
@@ -242,4 +247,10 @@ dev.off()
 summary(glht(fit.lmm3,linfct=mcp(numStims="Tukey")))
 summary(glht(fit.lmm3,linfct=mcp(betaLabels="Tukey")))
 summary(glht(fit.lmm3,linfct=mcp(phaseClass="Tukey")))
+
+
+qqPlot <- qqnorm(resid(fit.lmm4)) 
+qqline(resid(fit.lmm4)) 
+
+plot(fit.lmm4)
 
