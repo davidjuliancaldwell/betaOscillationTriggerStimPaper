@@ -44,7 +44,7 @@ fThresholdMax = 19.99;
 
 %fThresholdMin = 10;
 %fThresholdMax = 29.99;
-epThresholdMag = 50;
+epThresholdMag = 100;
 
 markerMin = 50;
 markerMax = 200;
@@ -309,7 +309,7 @@ figure
 grpstats(totalMags',{categorical(numStims)'},0.05)
 
 %writetable(tableBetaStim,'betaStim_outputTable_50_new.csv');
-fileNameWrite = fullfile(folderOutput,'betaStim_outputTable_50_new.csv');
+fileNameWrite = fullfile(folderOutput,'betaStim_outputTable_50_new_100_thresh.csv');
 writetable(tableBetaStim,fileNameWrite);
 return
 % %%
