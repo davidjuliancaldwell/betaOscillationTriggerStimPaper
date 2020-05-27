@@ -14,6 +14,9 @@ library('sjPlot')
 library('emmeans')
 library('dplyr')
 
+# log data prior to fitting?
+log_data = FALSE
+
 savePlot = 0
 figWidth = 8 
 figHeight = 6 
@@ -29,7 +32,17 @@ summaryDataCount <- data %>%
 data <- subset(data, magnitude<1500)
 data <- subset(data, magnitude>25)
 
+
+#data <- subset(data, magnitude<1000)
+#data <- subset(data, magnitude>30)
+
 data <- subset(data,!is.nan(data$magnitude))
+
+# log normnalize
+if(log_data){
+data$magnitude <- log(data$magnitude)
+}
+
 data <- subset(data,data$sid!='702d24')
 data <- subset(data,data$sid!='0b5a2ePlayBack')
 data <- subset(data,data$numStims!='Null')
@@ -182,6 +195,25 @@ if(savePlot){
   ggsave(paste0("betaStim_dose.png"), units="in", width=figWidth, height=figHeight,dpi=600)
   ggsave(paste0("betaStim_dose.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
+
+
+p3 <- ggplot(summaryDataNoPhase, aes(x=numStims, y=percentDiff,color=numStims)) + theme_light(base_size = 14) +
+  stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.1, position=pd1,colour="#666666") +
+  stat_summary(fun.y=median, geom="point", size=5, position=pd1,colour="#666666") +  
+  labs(x = 'Number of Conditioning Stimuli',title = 'Dose Dependent Change in CEPs',y = 'Percent Difference from Baseline')+ 
+  geom_hline(yintercept=0) +
+  scale_color_manual(values = colors) + theme(legend.position="none")
+p3
+figHeight = 4
+figWidth = 8
+
+
+if(savePlot){
+  ggsave(paste0("betaStim_dose_no_dots.svg"), units="in", width=figWidth, height=figHeight,dpi=600)
+  ggsave(paste0("betaStim_dose_no_dots.png"), units="in", width=figWidth, height=figHeight,dpi=600)
+  ggsave(paste0("betaStim_dose_no_dots.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+}
+
 
 p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) + 
   geom_boxplot(mapping = aes(x = numStims, y = percentDiff,fill=phaseClass),
