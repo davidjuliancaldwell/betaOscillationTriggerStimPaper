@@ -197,12 +197,12 @@ if(savePlot){
 }
 
 
-p3 <- ggplot(summaryDataNoPhase, aes(x=numStims, y=percentDiff,color=numStims)) + theme_light(base_size = 14) +
-  stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.1, position=pd1,colour="#666666") +
-  stat_summary(fun.y=median, geom="point", size=5, position=pd1,colour="#666666") +  
-  labs(x = 'Number of Conditioning Stimuli',title = 'Dose Dependent Change in CEPs',y = 'Percent Difference from Baseline')+ 
+p3 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + theme_light(base_size = 14) +
+  stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.05, position=pd1) +
+  stat_summary(fun.y=median, geom="point", size=2, position=pd1) +  
+  labs(x = 'Number of Conditioning Stimuli',colour = 'Delivered Phase',title = 'Dose Dependence as a Function of Phase of Stimulation',y = 'Percent Difference from Baseline')+ 
   geom_hline(yintercept=0) +
-  scale_color_manual(values = colors) + theme(legend.position="none")
+  scale_color_hue(labels=c("Depolarizing", "Hyperpolarizing")) 
 p3
 figHeight = 4
 figWidth = 8
