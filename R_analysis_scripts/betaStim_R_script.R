@@ -219,12 +219,11 @@ if(savePlot){
 
 
 # bar plot by which stim 
-p4 <- ggplot(summaryDataHighStimsOnly, aes(x=orderedPhase45, y=percentDiff,color=phaseDeliveryBinned45)) + theme_light(base_size = 14) +
+p4 <- ggplot(summaryDataHighStimsOnly, aes(x=orderedPhase45, y=percentDiff)) + theme_light(base_size = 14) +
   stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.05, position=pd1) +
   stat_summary(fun.y=median, geom="point", size=2, position=pd1) +  
-  labs(x = 'Binned Phase of Delivery',colour = 'Binned Phase of Delivery',title = 'Percent Change from Baseline as a Function of Binned Phase',y = 'Percent Difference from Baseline')+ 
-  geom_hline(yintercept=0) +
-  scale_color_hue(labels=c("0-45","45-90","90-135","135-180","180-225","225-270","270-315","315-360")) 
+  labs(x = 'Binned Phase of Delivery',title = 'Percent Change from Baseline as a Function of Binned Phase',y = 'Percent Difference from Baseline')+ 
+  geom_hline(yintercept=0) 
 p4
 figHeight = 4
 figWidth = 8
