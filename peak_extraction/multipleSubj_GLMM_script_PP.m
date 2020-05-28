@@ -65,6 +65,7 @@ totalMags = [];
 chanLabels = [];
 betaLabels = [];
 anovaType = {};
+phaseDeliveryBinned45 = {};
 stimLevelCombined =[];
 phaseDelivery = [];
 phaseDeliveryBinned = [];
@@ -198,6 +199,38 @@ for sid = SIDS(1:end)
                     end
                     phaseDeliveryBinned = [phaseDeliveryBinned phaseBinned];
                     
+                    % add in phase for 45 degree groups
+                    
+                    phaseBinned45 = phaseVec;
+                    if (any(phaseBinned45 <45) & any(phaseBinned45 >= 0))
+                        phaseBinnedString = repmat('0-45',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    elseif (any(phaseBinned45 <90) & any(phaseBinned45 >= 45))
+                        phaseBinnedString = repmat('45-90',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    elseif (any(phaseBinned45 <135) & any(phaseBinned45 >= 90))
+                        phaseBinnedString = repmat('90-135',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    elseif (any(phaseBinned45 <180) & any(phaseBinned45 >= 135))
+                        phaseBinnedString = repmat('135-180',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    elseif (any(phaseBinned45 <225) & any(phaseBinned45 >= 180))
+                        phaseBinnedString = repmat('180-225',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    elseif (any(phaseBinned45 <270) & any(phaseBinned45 >= 225))
+                        phaseBinnedString = repmat('225-270',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    elseif (any(phaseBinned45 <315) & any(phaseBinned45 >= 270))
+                        phaseBinnedString = repmat('270-315',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    elseif (any(phaseBinned45 <360) & any(phaseBinned45 >= 315))
+                        phaseBinnedString = repmat('315-360',length(phaseVec),1);
+                        phaseBinnedStringCell = cellstr(phaseBinnedString);
+                    end
+                    
+                    phaseDeliveryBinned45 = [phaseDeliveryBinned45{:} phaseBinnedStringCell'];
+
+                    
                     if ii ==1
                         numTest = [];
                         tempTestOrdered = [];
@@ -259,6 +292,9 @@ for sid = SIDS(1:end)
                         phaseBinned = phaseVec;
                         phaseDeliveryBinned = [phaseDeliveryBinned phaseBinned];
                         
+                        phaseBinnedStringCell = cellstr(repmat('NaN',length(phaseBinned),1));
+                        phaseDeliveryBinned45 = [phaseDeliveryBinned45{:} phaseBinnedStringCell'];
+
                         
                         numTest = [];
                         tempTestOrdered = [];
@@ -292,8 +328,8 @@ for sid = SIDS(1:end)
     end
 end
 %%
-tableBetaStim = table(totalMags',stimLevelCombined',categorical(numStims)',categorical(betaLabels)',categorical(betaSID)',categorical(chanLabels)',categorical(subjectNumVec'),categorical(phaseDeliveryBinned'),categorical(anovaType'),...
-    'VariableNames',{'magnitude','stimLevel','numStims','betaLabels','sid','channel','subjectNum','phaseClass','setToDeliverPhase'});
+tableBetaStim = table(totalMags',stimLevelCombined',categorical(numStims)',categorical(betaLabels)',categorical(betaSID)',categorical(chanLabels)',categorical(subjectNumVec'),categorical(phaseDeliveryBinned'),categorical(anovaType'),categorical(phaseDeliveryBinned45')...
+    ,'VariableNames',{'magnitude','stimLevel','numStims','betaLabels','sid','channel','subjectNum','phaseClass','setToDeliverPhase','phaseDeliveryBinned45'});
 % group stats
 
 statarray = grpstats(tableBetaStim,{'sid','numStims','channel','phaseClass'},{'mean','sem'},...

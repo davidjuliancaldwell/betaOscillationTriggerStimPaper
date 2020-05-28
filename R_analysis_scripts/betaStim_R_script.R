@@ -24,7 +24,7 @@ figHeight = 6
 # ------------------------------------------------------------------------
 here()
 data <- read.table(here("data","output_table","betaStim_outputTable_50_new_100_thresh.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
-                   colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
+                   colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor",'phaseDeliveryBinned45'="factor"))
 
 summaryDataCount <- data %>% 
   group_by(sid,setToDeliverPhase,numStims,channel) %>% tally()
@@ -32,6 +32,7 @@ summaryDataCount <- data %>%
 data <- subset(data, magnitude<1500)
 data <- subset(data, magnitude>25)
 
+data$orderedPhase45 <- factor(data$phaseDeliveryBinned45,levels=c('0-45','45-90','90-135','135-180','180-225','225-270','270-315','315-360'))
 
 #data <- subset(data, magnitude<1000)
 #data <- subset(data, magnitude>30)
@@ -87,6 +88,7 @@ dataSubjOnly <- subset(data,data$sid=='0b5a2e')
 summaryDataNoPhase = ddply(data, .(sid,numStims,channel,betaLabels), summarize, magnitude = mean(magnitude))
 summaryDataNoPhase = ddply(data[data$numStims != "Base",] , .(sid,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
 
+summaryDataHighStimsOnly = data[data$numStims=='[5,inf)',]
 
 # ------------------------------------------------------------------------
 
@@ -196,6 +198,7 @@ if(savePlot){
   ggsave(paste0("betaStim_dose.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
 
+# bar plot by hyper vs depol
 
 p3 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,color=phaseClass)) + theme_light(base_size = 14) +
   stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.05, position=pd1) +
@@ -214,6 +217,24 @@ if(savePlot){
   ggsave(paste0("betaStim_dose_no_dots.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
 
+
+# bar plot by which stim 
+p4 <- ggplot(summaryDataHighStimsOnly, aes(x=orderedPhase45, y=percentDiff,color=phaseDeliveryBinned45)) + theme_light(base_size = 14) +
+  stat_summary(fun.data=median_hilow,fun.args=(conf.int =0.5), geom="errorbar", width=0.05, position=pd1) +
+  stat_summary(fun.y=median, geom="point", size=2, position=pd1) +  
+  labs(x = 'Binned Phase of Delivery',colour = 'Binned Phase of Delivery',title = 'Percent Change from Baseline as a Function of Binned Phase',y = 'Percent Difference from Baseline')+ 
+  geom_hline(yintercept=0) +
+  scale_color_hue(labels=c("0-45","45-90","90-135","135-180","180-225","225-270","270-315","315-360")) 
+p4
+figHeight = 4
+figWidth = 8
+
+
+if(savePlot){
+  ggsave(paste0("betaStim_dose_binned45.svg"), units="in", width=figWidth, height=figHeight,dpi=600)
+  ggsave(paste0("betaStim_dose_binned45.png"), units="in", width=figWidth, height=figHeight,dpi=600)
+  ggsave(paste0("betaStim_dose_binned45.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+}
 
 p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) + 
   geom_boxplot(mapping = aes(x = numStims, y = percentDiff,fill=phaseClass),
