@@ -88,7 +88,8 @@ dataSubjOnly <- subset(data,data$sid=='0b5a2e')
 summaryDataNoPhase = ddply(data, .(sid,numStims,channel,betaLabels), summarize, magnitude = mean(magnitude))
 summaryDataNoPhase = ddply(data[data$numStims != "Base",] , .(sid,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
 
-summaryDataHighStimsOnly = data[data$numStims=='[5,inf)',]
+summaryDataHighStimsOnly = ddply(data[data$numStims == "[5,inf)",] , .(sid,phaseClass,numStims,channel,orderedPhase45), summarize, percentDiff = mean(percentDiff))
+
 
 # ------------------------------------------------------------------------
 
