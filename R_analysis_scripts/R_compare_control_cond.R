@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------------
-setwd('C:/Users/david/SharedCode/betaStimPaper')
+setwd('/Users/davidcaldwell/code/betaOscillationTriggerStimPaper')
 
 library('Hmisc')
 library('nlme')

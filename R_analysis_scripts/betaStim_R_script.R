@@ -1,6 +1,6 @@
 # ------------------------------------------------------------------------
 
-setwd('C:/Users/david/SharedCode/betaStimPaper')
+setwd('/Users/davidcaldwell/code/betaOscillationTriggerStimPaper')
 
 library('Hmisc')
 library('ggplot2')
@@ -13,6 +13,7 @@ library('lmerTest')
 library('sjPlot')
 library('emmeans')
 library('dplyr')
+library('afex')
 
 # log data prior to fitting?
 log_data = FALSE
@@ -79,6 +80,9 @@ sapply(data,class)
 #summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,channel), function(x) mean(x[,"percentDiff"]))
 
 summaryData = ddply(data, .(sid,phaseClass,numStims,channel,betaLabels), summarize, magnitude = mean(magnitude))
+
+summaryDataForMixed = ddply(data, .(sid,phaseClass,numStims,channel,betaLabels), summarize, magnitude = median(magnitude))
+
 
 summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
 
@@ -307,3 +311,59 @@ qqline(resid(fit.lmm4))
 
 plot(fit.lmm4)
 
+
+### mixed model on summary data
+
+fit.lmm5 = lmerTest::lmer(magnitude~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (1|sid/channel) ,data=summaryDataForMixed)
+
+fit.lmm5 = mixed(magnitude~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (numStims|sid/channel) ,data=summaryDataForMixed,method='LRT')
+
+fit.lmm5 = mixed(magnitude~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (numStims|sid/channel) ,data=summaryDataForMixed)
+
+
+RIaS = unlist(ranef(fit.lmm5))
+FixedEff = fixef(fit.lmm5)
+emm_s.t <- emmeans(fit.lmm5, pairwise ~ numStims | phaseClass)
+emm_s.t <- emmeans(fit.lmm5, pairwise ~ phaseClass | numStims)
+emm_s.t <- emmeans(fit.lmm5, pairwise ~ numStims | betaLabels)
+anova(fit.lmm5)
+
+
+tab_model(fit.lmm5)
+
+summary(fit.lmm5)
+
+figHeight = 4
+figWidth = 8
+if(savePlot){
+  png("betaStim_residuals_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
+  plot(fit.lmm5)
+  dev.off()
+  
+  setEPS()
+  postscript("betaStim_residuals_allSubjs.eps",width=figWidth,height=figHeight)
+  plot(fit.lmm5)
+  dev.off()
+  
+  
+  figHeight = 4
+  figWidth = 8
+  png("betaStim_qq_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
+  qqPlot <- qqnorm(resid(fit.lmm5)) 
+  qqline(resid(fit.lmm5))  #summary(fit.lmm2)dev.off()
+  dev.off()
+  
+  setEPS()
+  postscript("betaStim_qq_allSubjs.eps",width=figWidth,height=figHeight)
+  qqPlot <- qqnorm(resid(fit.lmm5)) 
+  qqline(resid(fit.lmm5)) 
+  dev.off()
+}
+
+summary(glht(fit.lmm5,linfct=mcp(numStims="Tukey")))
+summary(glht(fit.lmm5,linfct=mcp(betaLabels="Tukey")))
+summary(glht(fit.lmm5,linfct=mcp(phaseClass="Tukey")))
+
+
+qqPlot <- qqnorm(resid(fit.lmm5)) 
+qqline(resid(fit.lmm5)) 
