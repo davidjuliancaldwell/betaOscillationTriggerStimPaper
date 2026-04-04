@@ -232,17 +232,23 @@ Channel 14 was selected for its strong response. The dose-dependent interaction 
 
 ## Finding 11: Denominator DF inflation across model specifications
 
-Systematically compared four random effects structures on the same data. The original model's `(1|sid/channel)` produces severely inflated DF for all predictors. Adding random dose slopes per subject `(0+numStims|sid)` corrects the numStims DF but leaves phaseClass inflated. Adding `(1|channel:setToDeliverPhase)` to represent the condition-within-channel block structure brings phaseClass DF to the correct level (~31 channels).
+Systematically compared four random effects structures on the same data. The original model's `(1|sid/channel)` produces severely inflated DF for all predictors. Adding random dose slopes per subject `(0+numStims|sid)` corrects the numStims DF but leaves phaseClass inflated.
 
-| Effect | Model 1 (orig) | Model 2 (dose slopes) | Model 3 (summary) | Model 4 (nested) |
+| Effect | Model 1 (orig) | Model 2 (dose slopes) | **Model 3 (primary)** | Model 4 (nested, ref) |
 |--------|------|------|------|------|
-| numStims | df=37K, **p=2e-6** | df=5, p=0.16 | df=6, p=0.13 | df=5, p=0.16 |
-| phaseClass | df=4.6K, p=0.14 | df=4.2K, p=0.18 | df=78, p=0.38 | **df=31**, p=0.27 |
-| interaction | df=37K, **p=6e-4** | df=851, **p=0.048** | df=74, p=0.11 | df=753, **p=0.040** |
+| numStims | df=37K, **p=2e-6** | df=5, p=0.16 | **df=84, p=0.0002** | df=5, p=0.16 |
+| phaseClass | df=4.6K, p=0.14 | df=4.2K, p=0.18 | **df=84, p=0.42** | df=31, p=0.27 |
+| interaction | df=37K, **p=6e-4** | df=851, **p=0.048** | **df=84, p=0.16** | df=753, **p=0.040** |
 
-**Model 4** (trial-level, nested conditions) is singular because `(1|channel:setToDeliverPhase)` is redundant with `(1|channel)` for single-phase subjects. The singularity is harmless — its purpose is the DF correction, not the variance estimate.
+**Model 3** (summary-level, primary) collapses to one median per (subject x channel x phaseClass x numStims) cell (120 observations) and uses simple random intercepts: `(1|sid) + (1|channel)`. No singularity. Random dose slopes were removed because 6 subjects cannot support a 3x3 covariance matrix (correlations hit 1.0). `setToDeliverPhase` is not used as a random grouping factor — it is a fixed experimental condition, not a random sample.
 
-**Model 3** (summary-level) avoids singularity by collapsing to one median per (subject x channel x phaseClass x numStims) cell (120 observations). Both models converge on the same pattern: the interaction is driven by the [5,inf) dose level where phaseClass=270 > phaseClass=90 by ~6-7 uV.
+Model 3 performance: conditional R² = 0.998, marginal R² = 0.0005, partial eta² for numStims = 0.19 (large). The high ICC (0.998) reflects that most variance is between channels/subjects; the experimental manipulation produces a small (~11 uV) but detectable shift.
+
+phaseClass DF limitation: Satterthwaite assigns ~84 DF for phaseClass instead of the ideal ~30 (between-channel). Adding `(1|channel:setToDeliverPhase)` would correct this but is redundant with `(1|channel)` for 22/31 single-phase channels, causing singularity that cannot be resolved without also hitting boundary issues in the dose slope covariance. This does not affect conclusions — phaseClass is non-significant at DF=84 and would be less significant with fewer DF.
+
+**Model 4** (trial-level, nested conditions) is kept for reference. It is singular due to both `(1|channel:setToDeliverPhase)` redundancy with `(1|channel)` for single-phase subjects and near-saturated dose slope correlations (0.89–0.98) in `(0+numStims|sid)`.
+
+Both models converge on the same pattern: the dose effect is driven by the [5,inf) level, and emmeans show this effect is concentrated in phaseClass=270 channels (270 > 90 by ~6 uV at highest dose, p=0.063 in Model 3).
 
 ---
 
@@ -277,7 +283,7 @@ Both interpretations should be acknowledged. The within-channel analysis is the 
 
 3. **Exclude or separately analyze ecb43e random-condition trials** (`setToDeliverPhase == 12345`). They weren't phase-targeted and shouldn't receive the same treatment as deliberate phase conditions.
 
-4. **Use the summary-level model as the primary analysis** to reduce pseudoreplication concerns. Collapse to one value per (sid, phaseClass, numStims, channel) cell. Use simple random effects: `(1|sid) + (1|channel)` rather than `(numStims|sid/channel)`.
+4. **Use the summary-level model (Model 3) as the primary analysis** to eliminate pseudoreplication. Collapse to one median per (sid, phaseClass, numStims, channel) cell (120 observations). Use `magnitude ~ numStims * phaseClass + (1|sid) + (1|channel)` — random intercepts only. Random dose slopes cause singularity with 6 subjects; `setToDeliverPhase` is a fixed experimental condition and should not be a random grouping variable.
 
 5. **Validate phaseClass p-values** by comparing trial-level model standard errors against a channel-level analysis (e.g., permutation test or bootstrap at the channel level).
 

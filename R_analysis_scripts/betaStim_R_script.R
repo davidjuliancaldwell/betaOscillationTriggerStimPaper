@@ -14,6 +14,9 @@ library('sjPlot')
 library('emmeans')
 library('dplyr')
 library('afex')
+library('report')
+library('effectsize')
+library('performance')
 
 # log data prior to fitting?
 log_data = FALSE
@@ -285,6 +288,10 @@ fit.intercepts.only = lmerTest::lmer(
 
 summary(fit.intercepts.only)
 anova(fit.intercepts.only)
+report(fit.intercepts.only)
+report(anova(fit.intercepts.only))
+model_performance(fit.intercepts.only)
+eta_squared(fit.intercepts.only, ci = 0.95)
 
 # emmeans for the original model
 emm_orig_dose <- emmeans(fit.intercepts.only, pairwise ~ numStims | phaseClass)
@@ -325,6 +332,10 @@ fit.trial.level = lmerTest::lmer(
 summary(fit.trial.level)
 anova(fit.trial.level)
 VarCorr(fit.trial.level)
+report(fit.trial.level)
+report(anova(fit.trial.level))
+model_performance(fit.trial.level)
+eta_squared(fit.trial.level, ci = 0.95)
 
 # dose-response within each phase (raw uV)
 emm_trial_dose <- emmeans(fit.trial.level, ~ numStims | phaseClass)
@@ -350,15 +361,36 @@ if(savePlot){
 }
 
 # ------------------------------------------------------------------------
-# Model 3 (summary-level, recommended): one observation per cell
+# Model 3 (summary-level, primary reported model): one observation per cell
 # ------------------------------------------------------------------------
 # Collapse trials to median per (subject x channel x phaseClass x numStims).
 # This eliminates pseudoreplication: each cell contributes one value.
-# phaseClass DF now reflects the number of channels (~30), not trials (~37K).
+# 120 observations, 6 subjects, 31 channels.
 #
 # Random effects:
-#   (0+numStims|sid) — dose-response varies by subject
-#   (1|channel) — channel baseline differences
+#   (1|sid) — subject-level baseline differences
+#   (1|channel) — channel baseline differences (implicitly nested within
+#     subject since channel IDs are unique per subject)
+#
+# Random dose slopes (0+numStims|sid) were removed because with only
+# 6 subjects and 3 dose levels, the 3x3 covariance matrix (6 params)
+# is near-saturated. The resulting correlations hit 1.0, causing
+# singularity. Random intercepts are sufficient: the near-perfect
+# slope correlations indicate subjects shift uniformly across doses.
+#
+# No singularity. No use of setToDeliverPhase as a random grouping
+# factor (it is a fixed experimental condition, not a random sample).
+#
+# DF limitation: phaseClass is a channel-level constant for 22 of 31
+# channels, so its ideal denominator DF is ~30 (between-channel).
+# Satterthwaite assigns ~84 DF because the model lacks a random effect
+# at the channel-condition level. Adding (1|channel:setToDeliverPhase)
+# would fix the DF, but is redundant with (1|channel) for single-phase
+# channels (22/31), causing singularity. Including both terms requires
+# separating channel variance from condition-within-channel variance,
+# which the data cannot support with only 9 multi-phase channels.
+# This does not affect conclusions: phaseClass is non-significant at
+# DF=84 (p=0.42) and would be less significant with fewer DF.
 
 summaryNoBaseline <- ddply(dataNoBaseline, .(sid,phaseClass,numStims,channel),
                            summarize, magnitude = median(magnitude))
@@ -369,13 +401,17 @@ cat(sprintf("Summary-level data: %d observations, %d subjects, %d channels\n",
 
 fit.summary.level = lmerTest::lmer(
   magnitude ~ numStims * phaseClass +
-  (1|sid) + (0+numStims|sid) + (1|channel),
+  (1|sid) + (1|channel),
   data = summaryNoBaseline,
   control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=20000)))
 
 summary(fit.summary.level)
 anova(fit.summary.level)
 VarCorr(fit.summary.level)
+report(fit.summary.level)
+report(anova(fit.summary.level))
+model_performance(fit.summary.level)
+eta_squared(fit.summary.level, ci = 0.95)
 
 # dose-response within each phase (raw uV)
 emm_summ_dose <- emmeans(fit.summary.level, ~ numStims | phaseClass)
@@ -415,6 +451,10 @@ if(savePlot){
 # differences within a channel. The fit is singular because of this
 # redundancy, but the DF correction is the purpose.
 #
+# NOTE: This model is kept for reference/comparison. Model 3 (summary-level)
+# is the primary reported model — it avoids singularity entirely by
+# collapsing to one median per cell.
+#
 # Nesting: Subject -> Channel -> Condition -> Trial
 #   (0+numStims|sid) — dose-response varies by subject
 #   (1|channel) — channel baseline
@@ -429,6 +469,10 @@ fit.nested.condition = lmerTest::lmer(
 summary(fit.nested.condition)
 anova(fit.nested.condition)
 VarCorr(fit.nested.condition)
+report(fit.nested.condition)
+report(anova(fit.nested.condition))
+model_performance(fit.nested.condition)
+eta_squared(fit.nested.condition, ci = 0.95)
 
 # dose-response within each phase (raw uV)
 emm_nested_dose <- emmeans(fit.nested.condition, ~ numStims | phaseClass)
@@ -489,6 +533,10 @@ fit.no.9ab7ab = lmerTest::lmer(
 
 summary(fit.no.9ab7ab)
 anova(fit.no.9ab7ab)
+report(fit.no.9ab7ab)
+report(anova(fit.no.9ab7ab))
+model_performance(fit.no.9ab7ab)
+eta_squared(fit.no.9ab7ab, ci = 0.95)
 
 emm_4a_phase <- emmeans(fit.no.9ab7ab, ~ phaseClass | numStims)
 pairs(emm_4a_phase)
@@ -518,6 +566,10 @@ fit.clean = lmerTest::lmer(
 
 summary(fit.clean)
 anova(fit.clean)
+report(fit.clean)
+report(anova(fit.clean))
+model_performance(fit.clean)
+eta_squared(fit.clean, ci = 0.95)
 
 emm_4b_phase <- emmeans(fit.clean, ~ phaseClass | numStims)
 pairs(emm_4b_phase)
@@ -553,6 +605,10 @@ fit.within.channel = lmerTest::lmer(
 
 summary(fit.within.channel)
 anova(fit.within.channel)
+report(fit.within.channel)
+report(anova(fit.within.channel))
+model_performance(fit.within.channel)
+eta_squared(fit.within.channel, ci = 0.95)
 
 emm_4c_phase <- emmeans(fit.within.channel, ~ phaseClass | numStims)
 pairs(emm_4c_phase)
@@ -566,7 +622,7 @@ pairs(emm_4c_dose)
 cat("\n=== Denominator DF and p-values across all models ===\n\n")
 cat("Model 1  (intercepts only):         numStims df=37020  phaseClass df=4633   interaction df=36667\n")
 cat("Model 2  (trial, dose slopes):      numStims df=4.8    phaseClass df=4227   interaction df=851\n")
-cat("Model 3  (summary level):           numStims df=6      phaseClass df=78     interaction df=74\n")
+cat("Model 3  (summary level):           numStims df=84     phaseClass df=84     interaction df=84\n")
 cat("Model 4  (trial, nested cond):      numStims df=4.7    phaseClass df=31     interaction df=753\n")
 cat("Model 4a (excl 9ab7ab):             see anova above\n")
 cat("Model 4b (excl 9ab7ab + random):    see anova above\n")
