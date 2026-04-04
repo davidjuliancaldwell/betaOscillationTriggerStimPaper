@@ -250,120 +250,364 @@ p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) +
 p2 
 p2 + geom_hline(yintercept=0) + theme_classic()
 
-# ------------------------------------------------------------------------
-
+# ========================================================================
+# Mixed effects models: dose x phase interaction
+# ========================================================================
 #
-############ BEST ONE RIGHT NOW
-#fit.lmm3 = lme4::lmer(percentDiff~numStims+phaseClass + betaLabels + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=summaryData)
-#fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels + (1 | sid/channel) ,data=dataNoBaseline)
+# Hypothesis: dose (numStims) and phase (phaseClass) interact to affect
+# CEP magnitude. Higher conditioning doses enhance CEPs more at one
+# oscillation phase than the other.
+#
+# Key data structure notes:
+#   - Each trial (row) = one stimulation pulse and its evoked potential
+#     on one recording channel
+#   - numStims varies trial-to-trial within a channel (different trials
+#     received different numbers of conditioning pulses)
+#   - phaseClass is a channel-level constant — the circular mean of
+#     phase-at-delivery, binned to 90 or 270, replicated across all
+#     trials on that channel (see multipleSubj_GLMM_script_PP.m:190-191)
+#   - Channel IDs are unique per subject (subjectNum*100 + raw channel),
+#     so (1|channel) implicitly nests within subject
+#   - 6 subjects, 31 channels, ~37K trials after exclusions
+# ========================================================================
 
-#fit.lmm3 = lmerTest::lmer(percentDiff~numStims+phaseClass + betaLabels  + numStims:betaLabels + numStims:phaseClass + (1 | sid/channel) ,data=dataNoBaseline)
-fit.lmm3 = lmerTest::lmer(absDiff~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (1|sid/channel) ,data=dataNoBaseline)
-fit.lmm4 = lmerTest::lmer(magnitude~baseMean+numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (1|sid/channel) ,data=dataNoBaseline)
+# ------------------------------------------------------------------------
+# Model 1 (original): random intercepts only
+# ------------------------------------------------------------------------
+# Random intercept per subject and per channel. No random slopes.
+# numStims is tested against trial-level residuals (~37K DF) — this
+# overstates significance because subjects may differ in their dose response.
 
+fit.intercepts.only = lmerTest::lmer(
+  absDiff ~ numStims * phaseClass + betaLabels + numStims:betaLabels +
+  (1|sid/channel),
+  data = dataNoBaseline)
 
-RIaS = unlist(ranef(fit.lmm3))
-FixedEff = fixef(fit.lmm3)
-emm_s.t <- emmeans(fit.lmm3, pairwise ~ numStims | phaseClass)
-emm_s.t <- emmeans(fit.lmm3, pairwise ~ phaseClass | numStims)
-emm_s.t <- emmeans(fit.lmm3, pairwise ~ numStims | betaLabels)
-anova(fit.lmm3)
+summary(fit.intercepts.only)
+anova(fit.intercepts.only)
 
+# emmeans for the original model
+emm_orig_dose <- emmeans(fit.intercepts.only, pairwise ~ numStims | phaseClass)
+emm_orig_phase <- emmeans(fit.intercepts.only, pairwise ~ phaseClass | numStims)
 
-tab_model(fit.lmm3)
-
-summary(fit.lmm3)
-
-figHeight = 4
-figWidth = 8
-if(savePlot){
-png("betaStim_residuals_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
-plot(fit.lmm3)
-dev.off()
-
-setEPS()
-postscript("betaStim_residuals_allSubjs.eps",width=figWidth,height=figHeight)
- plot(fit.lmm3)
-dev.off()
-
-
-figHeight = 4
-figWidth = 8
-png("betaStim_qq_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
-qqPlot <- qqnorm(resid(fit.lmm3)) 
-qqline(resid(fit.lmm3))  #summary(fit.lmm2)dev.off()
-dev.off()
-
-setEPS()
-postscript("betaStim_qq_allSubjs.eps",width=figWidth,height=figHeight)
-qqPlot <- qqnorm(resid(fit.lmm3)) 
-qqline(resid(fit.lmm3)) 
-dev.off()
-}
-
-summary(glht(fit.lmm3,linfct=mcp(numStims="Tukey")))
-summary(glht(fit.lmm3,linfct=mcp(betaLabels="Tukey")))
-summary(glht(fit.lmm3,linfct=mcp(phaseClass="Tukey")))
-
-
-qqPlot <- qqnorm(resid(fit.lmm4)) 
-qqline(resid(fit.lmm4)) 
-
-plot(fit.lmm4)
-
-
-### mixed model on summary data
-
-fit.lmm5 = lmerTest::lmer(magnitude~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (1|sid/channel) ,data=summaryDataForMixed)
-
-fit.lmm5 = mixed(magnitude~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (numStims|sid/channel) ,data=summaryDataForMixed,method='LRT')
-
-fit.lmm5 = mixed(magnitude~numStims+phaseClass+betaLabels+numStims:betaLabels+numStims:phaseClass + (numStims|sid/channel) ,data=summaryDataForMixed)
-
-
-RIaS = unlist(ranef(fit.lmm5))
-FixedEff = fixef(fit.lmm5)
-emm_s.t <- emmeans(fit.lmm5, pairwise ~ numStims | phaseClass)
-emm_s.t <- emmeans(fit.lmm5, pairwise ~ phaseClass | numStims)
-emm_s.t <- emmeans(fit.lmm5, pairwise ~ numStims | betaLabels)
-anova(fit.lmm5)
-
-
-tab_model(fit.lmm5)
-
-summary(fit.lmm5)
+tab_model(fit.intercepts.only)
 
 figHeight = 4
 figWidth = 8
 if(savePlot){
-  png("betaStim_residuals_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
-  plot(fit.lmm5)
+  png(here("output_plots","betaStim_residuals_intercepts_only.png"),width=figWidth,height=figHeight,units="in",res=600)
+  plot(fit.intercepts.only)
   dev.off()
-  
-  setEPS()
-  postscript("betaStim_residuals_allSubjs.eps",width=figWidth,height=figHeight)
-  plot(fit.lmm5)
-  dev.off()
-  
-  
-  figHeight = 4
-  figWidth = 8
-  png("betaStim_qq_allSubjs.png",width=figWidth,height=figHeight,units="in",res=600)
-  qqPlot <- qqnorm(resid(fit.lmm5)) 
-  qqline(resid(fit.lmm5))  #summary(fit.lmm2)dev.off()
-  dev.off()
-  
-  setEPS()
-  postscript("betaStim_qq_allSubjs.eps",width=figWidth,height=figHeight)
-  qqPlot <- qqnorm(resid(fit.lmm5)) 
-  qqline(resid(fit.lmm5)) 
+
+  png(here("output_plots","betaStim_qq_intercepts_only.png"),width=figWidth,height=figHeight,units="in",res=600)
+  qqnorm(resid(fit.intercepts.only)); qqline(resid(fit.intercepts.only))
   dev.off()
 }
 
-summary(glht(fit.lmm5,linfct=mcp(numStims="Tukey")))
-summary(glht(fit.lmm5,linfct=mcp(betaLabels="Tukey")))
-summary(glht(fit.lmm5,linfct=mcp(phaseClass="Tukey")))
+# ------------------------------------------------------------------------
+# Model 2 (trial-level, random slopes): dose slopes per subject
+# ------------------------------------------------------------------------
+# Adds random dose-response slopes per subject via (0+numStims|sid).
+# Each subject can have its own dose effect. numStims is now tested
+# against between-subject variability (~5 DF) instead of ~37K.
+#
+# However, phaseClass DF remains inflated (~4K) because the model lacks
+# a random effect at the channel x condition level — within multi-phase
+# channels, hundreds of trials per phaseClass are treated as independent
+# replication of the phase contrast.
 
+fit.trial.level = lmerTest::lmer(
+  absDiff ~ numStims * phaseClass +
+  (1|sid) + (0+numStims|sid) + (1|channel),
+  data = dataNoBaseline,
+  control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=20000)))
 
-qqPlot <- qqnorm(resid(fit.lmm5)) 
-qqline(resid(fit.lmm5)) 
+summary(fit.trial.level)
+anova(fit.trial.level)
+VarCorr(fit.trial.level)
+
+# dose-response within each phase (raw uV)
+emm_trial_dose <- emmeans(fit.trial.level, ~ numStims | phaseClass)
+emm_trial_dose
+pairs(emm_trial_dose)
+
+# phase contrast at each dose (raw uV)
+emm_trial_phase <- emmeans(fit.trial.level, ~ phaseClass | numStims)
+pairs(emm_trial_phase)
+
+tab_model(fit.trial.level)
+
+figHeight = 4
+figWidth = 8
+if(savePlot){
+  png(here("output_plots","betaStim_residuals_trial_level.png"),width=figWidth,height=figHeight,units="in",res=600)
+  plot(fit.trial.level)
+  dev.off()
+
+  png(here("output_plots","betaStim_qq_trial_level.png"),width=figWidth,height=figHeight,units="in",res=600)
+  qqnorm(resid(fit.trial.level)); qqline(resid(fit.trial.level))
+  dev.off()
+}
+
+# ------------------------------------------------------------------------
+# Model 3 (summary-level, recommended): one observation per cell
+# ------------------------------------------------------------------------
+# Collapse trials to median per (subject x channel x phaseClass x numStims).
+# This eliminates pseudoreplication: each cell contributes one value.
+# phaseClass DF now reflects the number of channels (~30), not trials (~37K).
+#
+# Random effects:
+#   (0+numStims|sid) — dose-response varies by subject
+#   (1|channel) — channel baseline differences
+
+summaryNoBaseline <- ddply(dataNoBaseline, .(sid,phaseClass,numStims,channel),
+                           summarize, magnitude = median(magnitude))
+
+cat(sprintf("Summary-level data: %d observations, %d subjects, %d channels\n",
+    nrow(summaryNoBaseline), length(unique(summaryNoBaseline$sid)),
+    length(unique(summaryNoBaseline$channel))))
+
+fit.summary.level = lmerTest::lmer(
+  magnitude ~ numStims * phaseClass +
+  (1|sid) + (0+numStims|sid) + (1|channel),
+  data = summaryNoBaseline,
+  control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=20000)))
+
+summary(fit.summary.level)
+anova(fit.summary.level)
+VarCorr(fit.summary.level)
+
+# dose-response within each phase (raw uV)
+emm_summ_dose <- emmeans(fit.summary.level, ~ numStims | phaseClass)
+emm_summ_dose
+pairs(emm_summ_dose)
+
+# phase contrast at each dose (raw uV)
+emm_summ_phase <- emmeans(fit.summary.level, ~ phaseClass | numStims)
+pairs(emm_summ_phase)
+
+tab_model(fit.summary.level)
+
+figHeight = 4
+figWidth = 8
+if(savePlot){
+  png(here("output_plots","betaStim_residuals_summary_level.png"),width=figWidth,height=figHeight,units="in",res=600)
+  plot(fit.summary.level)
+  dev.off()
+
+  png(here("output_plots","betaStim_qq_summary_level.png"),width=figWidth,height=figHeight,units="in",res=600)
+  qqnorm(resid(fit.summary.level)); qqline(resid(fit.summary.level))
+  dev.off()
+}
+
+# ------------------------------------------------------------------------
+# Model 4 (trial-level, nested conditions): correct DF for phaseClass
+# ------------------------------------------------------------------------
+# Adds (1|channel:setToDeliverPhase) to represent the experimental block
+# structure. Each (channel, setToDeliverPhase) combination is one
+# condition-within-channel cell. phaseClass is constant within each cell,
+# so Satterthwaite correctly identifies it as a cell-level predictor
+# and gives it ~31 DF instead of ~4K.
+#
+# For single-phase subjects, setToDeliverPhase is constant per channel,
+# so this term is redundant with (1|channel) — lmer estimates near-zero
+# variance for it. For multi-phase subjects, it captures between-condition
+# differences within a channel. The fit is singular because of this
+# redundancy, but the DF correction is the purpose.
+#
+# Nesting: Subject -> Channel -> Condition -> Trial
+#   (0+numStims|sid) — dose-response varies by subject
+#   (1|channel) — channel baseline
+#   (1|channel:setToDeliverPhase) — condition-within-channel (phaseClass level)
+
+fit.nested.condition = lmerTest::lmer(
+  absDiff ~ numStims * phaseClass +
+  (0+numStims|sid) + (1|channel) + (1|channel:setToDeliverPhase),
+  data = dataNoBaseline,
+  control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=20000)))
+
+summary(fit.nested.condition)
+anova(fit.nested.condition)
+VarCorr(fit.nested.condition)
+
+# dose-response within each phase (raw uV)
+emm_nested_dose <- emmeans(fit.nested.condition, ~ numStims | phaseClass)
+emm_nested_dose
+pairs(emm_nested_dose)
+
+# phase contrast at each dose (raw uV)
+emm_nested_phase <- emmeans(fit.nested.condition, ~ phaseClass | numStims)
+pairs(emm_nested_phase)
+
+tab_model(fit.nested.condition)
+
+figHeight = 4
+figWidth = 8
+if(savePlot){
+  png(here("output_plots","betaStim_residuals_nested_condition.png"),width=figWidth,height=figHeight,units="in",res=600)
+  plot(fit.nested.condition)
+  dev.off()
+
+  png(here("output_plots","betaStim_qq_nested_condition.png"),width=figWidth,height=figHeight,units="in",res=600)
+  qqnorm(resid(fit.nested.condition)); qqline(resid(fit.nested.condition))
+  dev.off()
+}
+
+# ========================================================================
+# Sensitivity analyses: exclusions and within-channel only
+# ========================================================================
+# Model 4 includes all subjects and conditions. The following models
+# test robustness by:
+#   4a: Excluding 9ab7ab (no phaseClass contrast — all channels = 270)
+#   4b: Also excluding ecb43e random-condition trials (setToDeliverPhase=12345,
+#       not phase-targeted but assigned a phaseClass)
+#   4c: Restricted to within-channel phaseClass contrasts only — the 9 channels
+#       (across 3 subjects) where the same channel was stimulated at both phases.
+#       This is the cleanest causal evidence for the phase effect.
+#
+# All use the same random effects as Model 4:
+#   (0+numStims|sid) + (1|channel) + (1|channel:setToDeliverPhase)
+# ========================================================================
+
+# ------------------------------------------------------------------------
+# Model 4a: exclude 9ab7ab (no phase contrast)
+# ------------------------------------------------------------------------
+# 9ab7ab has all 5 channels at phaseClass=270 — contributes 7,786 rows
+# (21% of data) but zero information about the phase effect.
+
+dataNoBase_no9ab <- subset(dataNoBaseline, sid != '9ab7ab')
+
+cat(sprintf("Model 4a: %d trials, %d subjects, %d channels\n",
+    nrow(dataNoBase_no9ab), length(unique(dataNoBase_no9ab$sid)),
+    length(unique(dataNoBase_no9ab$channel))))
+
+fit.no.9ab7ab = lmerTest::lmer(
+  absDiff ~ numStims * phaseClass +
+  (0+numStims|sid) + (1|channel) + (1|channel:setToDeliverPhase),
+  data = dataNoBase_no9ab,
+  control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=20000)))
+
+summary(fit.no.9ab7ab)
+anova(fit.no.9ab7ab)
+
+emm_4a_phase <- emmeans(fit.no.9ab7ab, ~ phaseClass | numStims)
+pairs(emm_4a_phase)
+
+emm_4a_dose <- emmeans(fit.no.9ab7ab, ~ numStims | phaseClass)
+pairs(emm_4a_dose)
+
+# ------------------------------------------------------------------------
+# Model 4b: exclude 9ab7ab + ecb43e random-condition trials
+# ------------------------------------------------------------------------
+# ecb43e's random condition (setToDeliverPhase=12345) was not phase-locked
+# but gets a phaseClass assignment from sinusoidal fits. ~1,082 trials
+# dilute the phase effect estimate.
+
+dataNoBase_clean <- subset(dataNoBaseline,
+  sid != '9ab7ab' & setToDeliverPhase != '12345')
+
+cat(sprintf("Model 4b: %d trials, %d subjects, %d channels\n",
+    nrow(dataNoBase_clean), length(unique(dataNoBase_clean$sid)),
+    length(unique(dataNoBase_clean$channel))))
+
+fit.clean = lmerTest::lmer(
+  absDiff ~ numStims * phaseClass +
+  (0+numStims|sid) + (1|channel) + (1|channel:setToDeliverPhase),
+  data = dataNoBase_clean,
+  control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=20000)))
+
+summary(fit.clean)
+anova(fit.clean)
+
+emm_4b_phase <- emmeans(fit.clean, ~ phaseClass | numStims)
+pairs(emm_4b_phase)
+
+emm_4b_dose <- emmeans(fit.clean, ~ numStims | phaseClass)
+pairs(emm_4b_dose)
+
+# ------------------------------------------------------------------------
+# Model 4c: within-channel phaseClass only (cleanest causal evidence)
+# ------------------------------------------------------------------------
+# Restrict to the 9 channels where the same physical electrode was
+# stimulated under both phaseClass values (from different experimental
+# blocks). This eliminates the between-channel confound entirely.
+#
+# Channels with within-channel phaseClass variation:
+#   c91479: 264
+#   0b5a2e: 715, 716, 723, 731, 732
+#   ecb43e: 647, 648, 655
+
+within_channel_chans <- c('264','715','716','723','731','732','647','648','655')
+dataNoBase_within <- subset(dataNoBase_clean,
+  channel %in% within_channel_chans)
+
+cat(sprintf("Model 4c: %d trials, %d subjects, %d channels\n",
+    nrow(dataNoBase_within), length(unique(dataNoBase_within$sid)),
+    length(unique(dataNoBase_within$channel))))
+
+fit.within.channel = lmerTest::lmer(
+  absDiff ~ numStims * phaseClass +
+  (0+numStims|sid) + (1|channel) + (1|channel:setToDeliverPhase),
+  data = dataNoBase_within,
+  control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=20000)))
+
+summary(fit.within.channel)
+anova(fit.within.channel)
+
+emm_4c_phase <- emmeans(fit.within.channel, ~ phaseClass | numStims)
+pairs(emm_4c_phase)
+
+emm_4c_dose <- emmeans(fit.within.channel, ~ numStims | phaseClass)
+pairs(emm_4c_dose)
+
+# ------------------------------------------------------------------------
+# Summary: model comparison
+# ------------------------------------------------------------------------
+cat("\n=== Denominator DF and p-values across all models ===\n\n")
+cat("Model 1  (intercepts only):         numStims df=37020  phaseClass df=4633   interaction df=36667\n")
+cat("Model 2  (trial, dose slopes):      numStims df=4.8    phaseClass df=4227   interaction df=851\n")
+cat("Model 3  (summary level):           numStims df=6      phaseClass df=78     interaction df=74\n")
+cat("Model 4  (trial, nested cond):      numStims df=4.7    phaseClass df=31     interaction df=753\n")
+cat("Model 4a (excl 9ab7ab):             see anova above\n")
+cat("Model 4b (excl 9ab7ab + random):    see anova above\n")
+cat("Model 4c (within-channel only):     see anova above\n")
+cat("\nModels 3/4/4a/4b test robustness of the full dataset result.\n")
+cat("Model 4c tests whether the effect holds on clean within-channel evidence alone.\n")
+
+# ========================================================================
+# Effect sizes: Cohen's d with consistent denominator
+# ========================================================================
+# All effect sizes use the trial-level residual SD from Model 4 (~77 uV)
+# as the denominator. This represents trial-to-trial noise within a single
+# channel/condition/dose cell — the variability each individual stimulation
+# pulse must overcome. Using one consistent sigma makes d values comparable
+# across all models.
+#
+# Primary reporting is raw effects in uV (from emmeans above).
+# Cohen's d is supplementary, for cross-study comparability.
+# ========================================================================
+
+sigma_trial <- sigma(fit.nested.condition)
+edf_trial <- df.residual(fit.nested.condition)
+
+cat(sprintf("\n=== Effect sizes (Cohen's d, sigma = %.1f uV) ===\n\n", sigma_trial))
+
+# Model 4: dose-response within each phase
+cat("--- Model 4 (nested condition): dose within phase ---\n")
+eff_size(emm_nested_dose, sigma = sigma_trial, edf = edf_trial)
+
+# Model 4: phase contrast at each dose
+cat("--- Model 4 (nested condition): phase at each dose ---\n")
+eff_size(emm_nested_phase, sigma = sigma_trial, edf = edf_trial)
+
+# Model 4a: phase contrast at each dose (no 9ab7ab)
+cat("--- Model 4a (no 9ab7ab): phase at each dose ---\n")
+eff_size(emm_4a_phase, sigma = sigma_trial, edf = edf_trial)
+
+# Model 4b: phase contrast at each dose (no 9ab7ab + random)
+cat("--- Model 4b (clean): phase at each dose ---\n")
+eff_size(emm_4b_phase, sigma = sigma_trial, edf = edf_trial)
+
+# Model 4c: phase contrast at each dose (within-channel only)
+cat("--- Model 4c (within-channel): phase at each dose ---\n")
+eff_size(emm_4c_phase, sigma = sigma_trial, edf = edf_trial)

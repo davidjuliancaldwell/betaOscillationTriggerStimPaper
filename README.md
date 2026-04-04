@@ -29,6 +29,10 @@ The ***peak_extraction*** folder has scripts illustrating sweeping through the s
 
 The ***R_analysis_scripts*** folder contains the R scripts required to fit linear mixed models and generate statistical plots after the data structure generated from ***master_script_betaStim*** has been run
 
+- ***betaStim_R_script.R*** — Main mixed effects analysis. Contains four model specifications with progressively improved random effects structures, effect size reporting via `emmeans::eff_size()`, and model comparison. See `statistical_audit.md` for rationale.
+- ***R_compare_control_cond.R*** — Closed-loop vs playback control comparison (subject 7). Includes Cohen's d effect sizes and permutation tests (10,000 permutations, two-sided) for the dose-response interaction.
+- ***R_compare_subject_6_random.R*** — Random vs phase-targeted comparison (subject 6).
+
 ---
 
 ### Filter analysis
