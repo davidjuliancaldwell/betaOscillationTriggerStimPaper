@@ -27,7 +27,7 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
 
 - `setup_environment.m` / `Z_Constants.m`: Define subject IDs (SIDS), folder paths for all data directories. Both files set the same variables; `setup_environment.m` is called by `master_script_betaStim.m`.
 - Subject IDs: `{'d5cd55', 'c91479', '7dbdec', '9ab7ab', '702d24', 'ecb43e', '0b5a2e', '0b5a2ePlayback'}`
-- Subjects `702d24` and `0b5a2ePlayback` are excluded in the R analysis.
+- Subject `0b5a2ePlayback` is excluded from the main R analysis (used only in the CL vs playback comparison). `702d24` is now included (previously excluded, 1 channel only — no convergence issues).
 
 ## Data Directories (under `data/`)
 
@@ -41,7 +41,9 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
 ## Key Analysis Parameters
 
 - Beta band: ~10-30 Hz, extracted via nonlinear sinusoid fitting (not bandpass)
-- CEP magnitude thresholds: 25-1500 uV range; current preferred minimum is 100 uV
+- CEP magnitude filtering (two stages):
+  - **Channel-level** (MATLAB, `multipleSubj_GLMM_script_PP.m:185`): exclude channels where mean baseline EP < 100 uV (`epThresholdMag`). Screens out channels with weak/absent evoked potentials.
+  - **Trial-level** (R, `betaStim_R_script.R:36-37`): exclude individual trials with magnitude < 25 uV or > 1500 uV. Removes artifacts and non-responses.
 - Phase binning: 45-degree bins (8 bins per cycle)
 - Dose levels: Base, [1,2], [3,4], [5,inf) conditioning stimuli
 - Phase classes: depolarizing (90) vs hyperpolarizing (270)
@@ -69,45 +71,57 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
 
 ## Statistical Models
 
-`R_analysis_scripts/betaStim_R_script.R` contains four models with progressively improved random effects. **Model 3** (summary-level) is the primary reported model:
+`R_analysis_scripts/betaStim_R_script.R` contains five summary-level models (3a-3e), plus trial-level models (1, 2, 4) kept for reference. All summary models collapse to one **median** per (subject x channel x phaseClass x numStims) cell to eliminate pseudoreplication. Median is used consistently throughout: cell summaries, baseline computation, and permutation test statistics.
 
 ```r
-# Model 1: Original — random intercepts only. numStims DF inflated (~37K).
-fit.intercepts.only = lmer(absDiff ~ numStims * phaseClass + betaLabels +
-  numStims:betaLabels + (1|sid/channel), data=dataNoBaseline)
+# Model 3a: absDiff (baseline median pre-subtracted per channel).
+# Random intercepts only. Most powerful for dose (p=0.0002) but no random slopes.
+fit.absDiff = lmer(absDiff ~ numStims * phaseClass +
+  (1|sid) + (1|channel), data=summaryNB)  # 120 obs
 
-# Model 2: Adds random dose slopes per subject. Fixes numStims DF (~5),
-# but phaseClass DF still inflated (~4K).
-fit.trial.level = lmer(absDiff ~ numStims * phaseClass +
-  (1|sid) + (0+numStims|sid) + (1|channel), data=dataNoBaseline)
+# Model 3b: Raw magnitude with baseline as a fourth dose level.
+# Random linear dose slope per subject (doseNum=0,1,2,3).
+# Baseline-by-phase confound weakens interaction (p=0.34).
+fit.modelD = lmer(magnitude ~ numStims * phaseClass +
+  (1+doseNum|sid) + (1|channel), data=summaryAll)  # 151 obs
 
-# Model 3 (primary): Summary-level (one median per cell). No singularity.
-# Random intercepts only — dose slopes removed because 6 subjects cannot
-# support a 3x3 covariance matrix (correlations hit 1.0). setToDeliverPhase
-# is not used as a random effect (it is a fixed experimental condition).
-fit.summary.level = lmer(magnitude ~ numStims * phaseClass +
-  (1|sid) + (1|channel), data=summaryNoBaseline)
+# Model 3c (ANCOVA): Raw magnitude, baseline as fixed covariate (centered,
+# beta~1.03). Absorbs between-channel variance (channel SD 153→10 uV).
+fit.ancova = lmer(magnitude ~ numStims * phaseClass + baselineMag_c +
+  (1+doseNum|sid) + (1|channel), data=summaryNB_ancova)  # 120 obs
 
-# Model 4: Trial-level with condition nesting. Kept for reference.
-# Singular fit due to (1|channel:setToDeliverPhase) redundancy and
-# near-saturated dose slope covariance.
-fit.nested.condition = lmer(absDiff ~ numStims * phaseClass +
-  (0+numStims|sid) + (1|channel) + (1|channel:setToDeliverPhase), data=dataNoBaseline)
+# Model 3d: Ordinal dose (polynomial .L/.Q contrasts). Reparameterization
+# of 3c — identical fit. afex::mixed with expand_re tests .L and .Q
+# separately; .Q random variance ~0, confirming linear slope sufficient.
+fit.ordinal_afex = afex::mixed(magnitude ~ numStims_ord * phaseClass +
+  baselineMag_c + (numStims_ord || sid) + (1|channel),
+  data=summaryNB_ancova, expand_re=TRUE, per_parameter="numStims_ord")
+
+# Model 3e: Fully numeric dose (fixed + random). Most parsimonious.
+# Nested within 3c/3d — LRT confirms quadratic unnecessary (p=0.76).
+fit.numeric = lmer(magnitude ~ doseNum * phaseClass + baselineMag_c +
+  (1+doseNum|sid) + (1|channel), data=summaryNB_ancova)  # 120 obs
 ```
 
 Key data structure notes:
+- All cell summaries use **median** (magnitude, absDiff, percentDiff, baseline)
+- Permutation tests also use **median** as the test statistic
 - `numStims` (dose) varies trial-to-trial within a channel — real trial-level predictor
-- `phaseClass` is a channel-level constant — the circular mean of phase-at-delivery, binned to 90/270, replicated across all trials (`multipleSubj_GLMM_script_PP.m:190-191`)
-- `setToDeliverPhase` is a fixed experimental condition (not a random grouping variable)
+- `phaseClass` is a channel-level constant — the circular mean of phase-at-delivery, binned to 90/270
 - Channel IDs are unique per subject (subjectNum*100 + raw channel), so `(1|channel)` implicitly nests within subject
-- 6 subjects, 31 channels, 120 summary observations (median per cell), ~37K trials before aggregation
-- phaseClass DF limitation: Satterthwaite assigns ~84 DF for phaseClass instead of the ideal ~30 (between-channel). Adding `(1|channel:setToDeliverPhase)` would correct this but causes singularity — redundant with `(1|channel)` for 22/31 single-phase channels. Does not affect conclusions (phaseClass p=0.42 at DF=84)
+- 6 subjects, 31 channels, 120 summary observations (no baseline) or 151 (with baseline)
+- `doseNum` is a numeric encoding of the dose factor; `dose_linpoly` = `contr.poly(3)[,1]` is an equivalent linear rescaling used with ordinal models
+- None of the five primary models are singular
 
-Model 3 key results (easystats reporting added to R script):
-- numStims: F(2,84) = 9.60, **p = 0.0002**, partial eta² = 0.19 (large)
-- phaseClass: F(1,84) = 0.64, p = 0.42, partial eta² = 0.008
-- Interaction: F(2,84) = 1.85, p = 0.16, partial eta² = 0.04
-- Performance: conditional R² = 0.998, marginal R² = 0.0005, ICC = 0.998
-- Emmeans: dose effect at phase 270 ([5,inf) vs [1,2] = +11.3 uV, p=0.0001); no dose effect at phase 90; phase contrast at [5,inf) = 5.8 uV, p=0.063
+Model comparison (all on median, after phaseClass fix):
 
-`R_analysis_scripts/R_compare_control_cond.R` compares closed-loop (0b5a2e) vs playback control (0b5a2ePlayBack) with Cohen's d effect sizes and permutation tests. See `statistical_audit.md` for full findings.
+| Model | AIC | Dose p | Interaction p | Phase contrast |
+|-------|-----|--------|---------------|----------------|
+| 3a (absDiff, no slopes) | 910 | **~0.0002** | ~0.86 | ns |
+| 3c (ANCOVA, categorical) | 912 | 0.188 | **0.859** | ns |
+| 3d (ordinal, .L only) | 914 | 0.188 | **0.616** (.L coeff) | ns |
+| 3e (numeric, linear) | 917 | 0.106 | **0.615** | ns |
+
+**Critical bug fix (2026-04-06)**: `multipleSubj_GLMM_script_PP.m` had a phase label swap for multi-phase subjects — both `phaseClass` and `setToDeliverPhase` were inverted for c91479, 0b5a2e, 0b5a2ePlayBack. The previously reported phase × dose interaction (p = 0.045-0.110) was an artifact. After fix, the interaction is non-significant (p = 0.62-0.86). The dose main effect remains significant in the no-random-slopes sensitivity analysis (Model 3a).
+
+`R_analysis_scripts/R_compare_control_cond.R` compares closed-loop (0b5a2e) vs playback control (0b5a2ePlayBack) with Cohen's d effect sizes and permutation tests (using median as test statistic). See `statistical_audit.md` for full findings.

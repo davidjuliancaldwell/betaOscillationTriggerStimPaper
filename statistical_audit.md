@@ -345,3 +345,225 @@ Phase contrast at [5,inf) (270 - 90) across models, all using sigma = 77.4 uV:
 | 4c (within-channel) | 2.4 uV | 0.03 | (-0.06, 0.12) |
 
 The d = 0.08 is small relative to single-trial noise — expected for neural data where trial-to-trial variability (77 uV) far exceeds systematic effects (6 uV). The effect is reliable (significant across thousands of trials) but small on any given pulse. The within-channel analysis (4c) shows a halved effect size that does not reach significance.
+
+---
+
+## Finding 16: Phase fit screening — frequency filter is the bottleneck, not R²
+
+The phase visualization plots show an apparent discrepancy: the R² histogram looks heavily concentrated near 1.0, but the polar plot reports only 225/1451 trials passing. This is because the histogram pre-filters for frequency (12-20 Hz) before showing R² values, while the denominator (1451) is all trials.
+
+Analysis on d5cd55 channel 53 (beta channel):
+
+| Filter | Passes | Percentage |
+|--------|--------|-----------|
+| R² > 0.7 (any freq) | 1023 | 70% |
+| Freq 12-20 Hz (any R²) | 244 | 17% |
+| Both R² > 0.7 AND freq 12-20 | 225 | 15% |
+
+798 trials (55%) have excellent sinusoidal fits (R² > 0.7) but the fitted frequency is outside 12-20 Hz — 639 below 12 Hz, 159 above 20 Hz. The fit locks onto a clean oscillation in a different frequency band. Among trials that DO fall in 12-20 Hz, 96% have R² > 0.7 (mean R² = 0.94).
+
+**Impact on burst-level phase precision analysis**: With only ~17% of conditioning stims producing in-band fits, a burst of 7 stims yields ~1.2 good fits on average. This makes per-burst phase precision (circular R) unreliable — 1 fit gives R=1.0 trivially. The `compute_burst_phase_precision.m` script was written to test whether tighter phase precision in conditioning bursts predicts larger CEPs, but the low pass rate limits statistical power for this analysis.
+
+The frequency filter (12-20 Hz) is more restrictive than the R² filter (0.7) because the 40ms pre-stimulus window (~1 beta cycle) often contains oscillatory activity outside the beta band. The sinusoidal fit finds the best-fitting frequency, which may not be beta even when the fit quality is excellent.
+
+---
+
+## Finding 17: CL vs Playback analysis on beta channel (channel 31)
+
+The original CL vs PB comparison used channel 14 (selected for strong response). Channel 31 is the actual beta channel where phase detection and triggering occurred, and has the largest CEP magnitudes (median 530 uV).
+
+**Phase delivery on beta channel** (from phase data files):
+- 90-targeted: circular mean = 109.4°, R = 0.718 (good concentration)
+- 270-targeted: circular mean = 296.8°, R = 0.551
+
+**Channel 14 does NOT see different phases**: both conditions give circular mean ~270-282° on channel 14. The phase offset between the detection site (ch 31) and recording site (ch 14) is such that ch 14 is always near 270° regardless of targeting condition.
+
+**Beta channel CL vs PB results** (log-transformed LM, trial-level):
+- Condition (CL vs PB): p = 0.017 — CL consistently larger
+- Dose (numStims): p = 0.189
+- Interaction: **p = 0.030** — but in the WRONG direction: CL advantage shrinks from +6.7% at Base to +1.9% at [5,inf)
+
+**Per-dose CL > PB (median, permutation)**:
+- Base: +41.5 uV, p = 0.018
+- [1,2]: +37.8 uV, p < 0.0001
+- [3,4]: +40.0 uV, p < 0.0001
+- [5,inf): +26.1 uV, p = 0.004
+
+All dose levels significant. The CL advantage is a constant ~30-40 uV session offset, not dose-dependent.
+
+**Within CL: 270-targeted vs 90-targeted at [5,inf)**:
+- 270: median 534.6 uV, 90: median 521.9 uV
+- Difference: +12.7 uV, permutation p = 0.286 — not significant
+
+**All-channel comparison** (8 matched pairs, linear model with baseline covariate):
+- Condition: CL > PB by ~23 uV, p = 3.9e-07
+- Dose: F(2,35) = 6.22, p = 0.005
+- Interaction: F(2,35) = 0.03, p = 0.968 — no dose × condition interaction
+
+The closed-loop system produces systematically larger CEPs than playback control across all channels and dose levels, but this is a session-level offset, not a dose-dependent phase-locking benefit.
+
+---
+
+## Finding 18: Channel 14 heavy tail analysis
+
+The mean-based CL-PB interaction on channel 14 (previously p = 0.039) was driven by a heavy right tail in the CL condition:
+
+| Dose | CL sd | PB sd | CL trials > 540 uV | PB trials > 540 uV |
+|------|-------|-------|--------------------|--------------------|
+| Base | 137.7 | 56.9 | 4 (8.2%) | 0 |
+| [1,2] | 130.7 | 71.1 | 25 (7.1%) | 0 |
+| [3,4] | 175.3 | 73.2 | 29 (12.3%) | 0 |
+| [5,inf) | 242.9 | 65.3 | 16 (15.7%) | 0 |
+
+Zero PB trials exceed 540 uV. The CL condition has dozens of extreme trials (up to 1285 uV), and the proportion grows with dose (8% → 16%). The CL mean at [5,inf) is 431.6 but median is 358.2 — a 73 uV gap driven by the tail. PB mean ≈ median.
+
+Switching to median: the interaction drops from +68.9 uV (p=0.039) to +16.9 uV (p=0.458). The per-dose CL > PB remains significant at [5,inf) (+27.5 uV, p=0.036) but the dose-dependent growth is not significant.
+
+Log-transformed trial-level LM on channel 14: interaction p = 0.095 (trending). Residual skew drops from 2.5 (raw) to 0.3 (log).
+
+---
+
+## Finding 19: Burst-level phase precision does NOT predict CEP magnitude
+
+`compute_burst_phase_precision.m` links each test stim to its preceding conditioning burst and computes the circular mean and vector length (concentration) of beta-band phase fits (R² > 0.7 AND 12-20 Hz) across the burst's conditioning stims. Merged with EP magnitudes via rank-matching within (channel, target phase, dose) cells.
+
+**Note**: The EP output table's `setToDeliverPhase` labels are swapped for 0b5a2e — `setToDeliverPhase="90"` in the CSV corresponds to burst type 0 (270-targeted), and vice versa. This is because `multipleSubj_GLMM_script_PP.m` assigns `desiredF(ii)` where `ii` is the loop index over sorted burst types, not the burst type value itself. The burst phase precision table has correct labels. The merge accounts for this swap.
+
+### Beta channel (31) at [5,inf)
+
+| Target | n with beta fits | Spearman rho (vecLength vs mag) | p |
+|--------|-----------------|--------------------------------|---|
+| 90° | 46 | -0.074 | 0.625 |
+| 270° | 39 | -0.205 | 0.210 |
+
+No significant correlation. Most bursts have only 1-2 beta-band fits (median nGoodBeta = 1-2), giving ceiling vector lengths (R ≈ 1.0) with insufficient variance to test the hypothesis.
+
+### Channel 14 at [5,inf) — significant REVERSE effect
+
+For 270-targeted bursts (n=41 with beta fits):
+- **Spearman rho = -0.299, p = 0.058** — trending negative
+- **Tight phase (R > 0.882, n=20)**: median 331.7 uV
+- **Loose phase (R ≤ 0.882, n=21)**: median 438.8 uV
+- **Difference: -107.2 uV, permutation p = 0.006** — loose phase produces LARGER CEPs
+
+Extreme trials (>540 uV, n=16):
+- Have LOWER phase precision (median vecLength = 0.725) than normal trials (0.994)
+- Split evenly across target phases (7 targeting 270°, 9 targeting 90°)
+- Not driven by precise 270° targeting
+
+The large CEPs on channel 14 come from bursts with poor phase precision, not tight phase-locking. This may reflect cortical excitability fluctuations that simultaneously disrupt the beta oscillation (degrading fits) and enhance evoked responses, or stimulation artifact from long/intense bursts that degrades fit quality while also producing large CEPs through cumulative conditioning.
+
+---
+
+## Finding 20 (CRITICAL): phaseClass AND setToDeliverPhase both swapped for multi-phase subjects
+
+**Bug**: In `multipleSubj_GLMM_script_PP.m`, the data loop `for ii = 1:numTypes` uses `desiredF(ii)` and `peakPhaseVec(ii,...)` directly. But `ii` indexes `dataForPPanalysis{chan}{ii}`, which stores data for burst type `types(ii)` (sorted, 0-indexed). The phase calc loop uses `indices = [1,2]` where index 1 = pos (stims(8)==1, rising, ~90° target) and index 2 = neg (stims(8)==0, falling, ~270° target). Since burst types are sorted as [0, 1, ...], `ii=1` → burst type 0 (neg/270-targeted) but gets `desiredF(1)` (90) and `peakPhaseVec(1,:)` (90-targeted phase). Both labels are wrong.
+
+**Affected columns**: BOTH `setToDeliverPhase` AND `phaseClass` are swapped for multi-phase subjects (c91479, 0b5a2e, 0b5a2ePlayBack). The 270-targeted data gets the 90-targeted phase and label, and vice versa. The swap appears self-consistent in the CSV (setToDeliverPhase=270 always has phaseClass=270) because both use the same wrong index.
+
+**Not affected**: Single-phase subjects (d5cd55, 7dbdec, 9ab7ab) — only one condition type, trivial mapping. Also not affected: the polar plots and phase distribution figures, which use `phase_at_0_pos`/`phase_at_0_neg` directly.
+
+**Fix applied**: `bt = ii - 1` gives the burst type, then map to correct index: type 's' → 1, type 'm' → `2 - bt` (bt=0→2, bt=1→1), type 't' → bt=0→1, bt=1→2, bt≥2→4. Output table regenerated.
+
+**Impact on results**: The phase × dose interaction that appeared significant in Models 3c-3e (p = 0.045-0.110) was driven by this mislabeling. After fix:
+
+| Model | Interaction p (before) | Interaction p (after) |
+|-------|----------------------|---------------------|
+| 3a (absDiff) | 0.161 | TBD |
+| 3c (ANCOVA) | 0.110 | **0.859** |
+| 3d (ordinal .L) | 0.047 | **0.616** |
+| 3e (numeric) | 0.045 | **0.615** |
+
+The "dose-dependent CEP enhancement selective to hyperpolarizing (270) channels" was an artifact of phase mislabeling. The dose main effect remains significant in Model 3a (p ≈ 0.0002).
+
+---
+
+## Finding 21: CEP magnitude filtering pipeline
+
+Two-stage filtering removes channels without meaningful evoked potentials and individual artifact/non-response trials:
+
+**Stage 1: Channel-level exclusion (MATLAB)**
+`multipleSubj_GLMM_script_PP.m` line 185:
+```matlab
+if nanmean(tempMagScreen(tempLabelScreen==0 & tempKeepsScreen)) > epThresholdMag
+```
+Computes the mean peak-to-peak magnitude across baseline trials (label==0, kept probes) for condition 1 on each channel. Channels where this mean < 100 uV (`epThresholdMag = 100`) are excluded entirely from the output table. This screens out channels far from the stimulation site or with poor recording quality. Applied per channel, not per trial.
+
+**Stage 2: Trial-level exclusion (R)**
+`betaStim_R_script.R` lines 36-37:
+```r
+data <- subset(data, magnitude < 1500)
+data <- subset(data, magnitude > 25)
+```
+Removes individual trials with peak-to-peak voltage < 25 uV (likely non-responses or flat signals) or > 1500 uV (likely artifacts). Applied after the MATLAB channel-level filter.
+
+**Peak-to-peak extraction** (`extract_PP_betaStim.m`):
+For each trial, extracts the maximum peak-to-trough amplitude in a subject-specific time window (e.g., 5-36 ms for d5cd55, 6-60 ms for ecb43e). Optionally smoothed with Savitzky-Golay filter (order 3, frame 171 samples). Every trial gets a value — no per-trial filtering in MATLAB.
+
+---
+
+## Finding 14: Median consistency across all analyses
+
+All analyses now use **median** consistently for:
+- Cell summaries: `median(magnitude)`, `median(absDiff)`, `median(percentDiff)` per (sid, channel, phaseClass, numStims) cell
+- Baseline computation: `baseMedian = median(base)` per channel (previously `baseMean = mean(base)`)
+- Baseline covariate: `baselineMag = median(magnitude)` for Base trials per channel
+- Permutation test statistics: `median(dSub$magnitude[condition == "CL"]) - median(dSub$magnitude[condition == "PB"])` (previously used `mean()`)
+- Plotting summaries: all `ddply(..., summarize, ...)` calls use `median()`
+
+Rationale: CEP magnitudes are right-skewed and the 25-1500 uV filtering still permits extreme values. Median is robust to within-cell outliers and produces more normally distributed model residuals. With 100+ trials per cell, mean and median are similar, but median is more defensible against reviewer concerns about outlier sensitivity.
+
+---
+
+## Finding 15: Ordinal and numeric dose model comparison (Models 3d, 3e)
+
+Five summary-level models (3a-3e) were compared, all non-singular, all using median cell summaries:
+
+| Model | Specification | AIC | Dose p | Int p | Phase 270>90 at [5,inf) |
+|-------|--------------|-----|--------|-------|------------------------|
+| 3a | absDiff, intercepts only | 907 | **0.00016** | 0.161 | 6.0 uV, **p=.047** |
+| 3b | magnitude + baseline category, slope | 1300 | 0.228 | 0.146 | — (confounded) |
+| 3c | ANCOVA (baseline covariate), categorical dose | 907 | 0.193 | 0.110 | 6.5 uV, **p=.030** |
+| 3d-i | ordinal (.L+.Q uncorr slopes, afex) | 919 | 0.271 | 0.170 | — |
+| 3d-ii | ordinal (.L only slope, lmerTest) | 910 | 0.193 | 0.110 | 6.5 uV, **p=.030** |
+| 3e | numeric dose (fixed + random) | 1024 | 0.063 | 0.311 | ns |
+
+**NOTE**: Finding 15 results above were computed BEFORE the phaseClass label fix (Finding 20). The interaction p-values shown here are pre-fix and no longer valid. Post-fix results (7 subjects including 702d24):
+
+| Model | AIC | Dose p | Interaction p |
+|-------|-----|--------|---------------|
+| 3a | 1010 | **0.005** | 0.683 |
+| 3c | 1017 | 0.085 | 0.587 |
+| 3e | 1024 | 0.056 | 0.311 |
+
+Key findings (post-fix):
+- **3d-ii is identical to 3c**: ordinal polynomial .L contrast is a linear rescaling of doseNum. Confirms reparameterization.
+- **3d-i (.L+.Q random slopes)**: .Q random variance negligible. Linear slope sufficient.
+- **LRT 3e vs 3d-ii**: quadratic adds nothing (p ≈ 0.80).
+- **Phase interaction is non-significant in ALL models** (p = 0.31-0.68). The pre-fix "selective to hyperpolarizing channels" finding was an artifact of the label swap (Finding 20).
+- **Dose effect**: significant in intercepts-only model (3a, p = 0.005), trending with random slopes (3c p = 0.085, 3e p = 0.056). Dose-response vs baseline: [5,inf) - Base = +14.5 uV, CI [8.3, 20.6] (intercepts model).
+- All models converge: dose-dependent CEP enhancement exists, but there is no phase selectivity.
+
+---
+
+## Finding 13: ecb43e stim table versions — verified no impact
+
+Multiple versions of `ecb43e_tables.mat` exist across backup locations due to a stim table rebuild on 2019-11-08 (commit `29f12a1`). Comparison of the OLD (original, 103,367 bytes) and NEW (rebuilt, 103,292 bytes) tables:
+
+| Property | OLD | NEW | Impact |
+|----------|-----|-----|--------|
+| Total stims | 10,000 | 9,998 | 2 stim difference |
+| Probe stims (mode==0) | 1,650 | 1,650 | **Identical times** |
+| In-burst stims (mode==1) | 8,350 | 8,348 | 2 fewer in NEW |
+| 270° in-burst | 2,473 | 2,473 | Identical |
+| 90° in-burst | 3,247 | 3,247 | Identical |
+| Random in-burst | 2,628 | 2,628 | Identical |
+| Bursts | 1,169 | 1,169 | Identical |
+
+The 2 removed stimuli in the NEW table were in-burst conditioning pulses with anomalous stim type code `stims(8,:)==2`, which does not exist in the NEW table. This type code is not matched by any condition filter in the analysis pipeline (`stims(8,:)==0` for 270°, `==1` for 90°, `==3` for random), so these 2 stimuli would never enter the phase calculation or EP extraction regardless of which table is used.
+
+**Probe stim times are byte-identical between OLD and NEW.** Since probe stims are the test pulses used for CEP magnitude extraction, the EP data is unaffected by the table version.
+
+The phase calculation (`B_phaseCalc_allChans_processed.m`) was likely not rerun after the table rebuild — the commit hardcoded `idxVec = [7:7]` (subject 7 only) and `chans = 64` (debug settings). However, since the per-condition in-burst stim counts and times are identical between tables, rerunning the phase calculation would produce the same results.
+
+A third variant (`ecb43e_tables_modDJC.mat`, 106,672 bytes) exists with 1,553 bursts (vs 1,169), suggesting a different burst-detection parameterization. This variant is not used in the current pipeline.

@@ -29,9 +29,10 @@ The ***peak_extraction*** folder has scripts illustrating sweeping through the s
 
 The ***R_analysis_scripts*** folder contains the R scripts required to fit linear mixed models and generate statistical plots after the data structure generated from ***master_script_betaStim*** has been run
 
-- ***betaStim_R_script.R*** — Main mixed effects analysis. Contains four model specifications with progressively improved random effects structures, effect size reporting via `emmeans::eff_size()`, and model comparison. See `statistical_audit.md` for rationale.
+- ***betaStim_R_script.R*** — Main mixed effects analysis. Three primary summary-level models: 3a (absDiff, intercepts only), 3b (magnitude with baseline category, random dose slope), 3c (ANCOVA with baseline covariate, random dose slope — primary). Plus trial-level models (1, 2, 4) and sensitivity analyses (4a-4c) kept for reference. Effect size reporting via `emmeans::eff_size()` and `effectsize::eta_squared()`. See `statistical_audit.md` for rationale.
 - ***R_compare_control_cond.R*** — Closed-loop vs playback control comparison (subject 7). Includes Cohen's d effect sizes and permutation tests (10,000 permutations, two-sided) for the dose-response interaction.
 - ***R_compare_subject_6_random.R*** — Random vs phase-targeted comparison (subject 6).
+- ***compare_three_models.R*** — Standalone script comparing Models 3a, 3b, 3c side-by-side with emmip and forest plots.
 
 ---
 

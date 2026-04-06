@@ -46,12 +46,12 @@ for (name in unique(data$sid)){
     for (numStimTrial in unique(data$numStims)){
       numBase = nrow(data[data$sid == name & data$channel == chan & data$numStims == 'Base',])
       base = data[data$sid == name & data$channel == chan & data$numStims == 'Base',]$magnitude
-      baseMean = mean(base)
-      data[data$sid == name & data$channel == chan & data$numStims == 'Base',]$percentDiff = 100*(base - baseMean)/baseMean
+      baseMedian = median(base)
+      data[data$sid == name & data$channel == chan & data$numStims == 'Base',]$percentDiff = 100*(base - baseMedian)/baseMedian
       for (typePhase in unique(data$phaseClass)){
-        percentDiff = 100*((data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude)-baseMean)/baseMean
+        percentDiff = 100*((data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude)-baseMedian)/baseMedian
         data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$percentDiff = percentDiff
-        absDiff = data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude-baseMean
+        absDiff = data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude-baseMedian
         data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$absDiff = absDiff
       }
     }
@@ -66,7 +66,7 @@ dataSubjOnly <- subset(data,data$sid=='0b5a2e' | data$sid=='0b5a2ePlayBack')
 dataSubjChanOnly <- subset(dataSubjOnly,dataSubjOnly$channel == chanInt1 | dataSubjOnly$channel == chanInt2)
 #summaryData = ddply(dataSubjOnly[dataSubjOnly$numStims != "Base",] , .(sid,phaseClass,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
 #summaryData = ddply(dataSubjOnly, .(sid,phaseClass,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
-summaryData = ddply(dataSubjOnly, .(sid,phaseClass,numStims,channel,betaLabels), summarize, meanMag = mean(magnitude), sdMag = sd(magnitude))
+summaryData = ddply(dataSubjOnly, .(sid,phaseClass,numStims,channel,betaLabels), summarize, medianMag = median(magnitude), sdMag = sd(magnitude))
 
 summaryDataChan = subset(summaryData,summaryData$chan == chanInt1 | summaryData$chan == chanInt2)
 # ------------------------------------------------------------------------
@@ -120,6 +120,42 @@ tab_model(fit.lm)
 
 summary(glht(fit.lm,linfct=mcp(sid="Tukey")))
 summary(glht(fit.lm,linfct=mcp(numStims="Tukey")))
+
+# ------------------------------------------------------------------------
+# Log-transformed linear model (trial-level)
+# ------------------------------------------------------------------------
+# Log reduces skew (2.5 → 0.3) and downweights extreme CL trials.
+# CL condition has heavy right tail that grows with dose (sd 138→243 uV);
+# PB is symmetric (sd ~65 uV constant). Log makes residuals more normal.
+
+dataSubjChanOnly$logMag <- log(dataSubjChanOnly$magnitude)
+
+fit.lm.log = lm(logMag ~ numStims + sid + numStims:sid, data = dataSubjChanOnly)
+
+cat("\n=== Log-transformed linear model (channel 14) ===\n")
+summary(fit.lm.log)
+cat("\nANOVA (Type III):\n")
+print(car::Anova(fit.lm.log, type = 3))
+
+emm_log_cond <- emmeans(fit.lm.log, ~ sid | numStims)
+cat("\nCL vs PB at each dose (log scale, as % change):\n")
+contr_log <- as.data.frame(confint(pairs(emm_log_cond)))
+contr_log$pct_change <- round((exp(contr_log$estimate) - 1) * 100, 1)
+contr_log$pct_lo <- round((exp(contr_log$lower.CL) - 1) * 100, 1)
+contr_log$pct_hi <- round((exp(contr_log$upper.CL) - 1) * 100, 1)
+print(contr_log[, c("numStims", "estimate", "pct_change", "pct_lo", "pct_hi")])
+
+emm_log_dose <- emmeans(fit.lm.log, ~ numStims | sid)
+cat("\nDose contrasts within CL (log, % change):\n")
+dose_log <- as.data.frame(confint(pairs(emm_log_dose)))
+dose_log$pct <- round((exp(dose_log$estimate) - 1) * 100, 1)
+print(dose_log[dose_log$sid == "0b5a2e", c("contrast", "pct")])
+cat("\nDose contrasts within PB (log, % change):\n")
+print(dose_log[dose_log$sid == "0b5a2ePlayBack", c("contrast", "pct")])
+
+cat(sprintf("\nResidual diagnostics: raw skew=%.2f, log skew=%.2f\n",
+  mean((resid(fit.lm)/sd(resid(fit.lm)))^3),
+  mean((resid(fit.lm.log)/sd(resid(fit.lm.log)))^3)))
 
 # ------------------------------------------------------------------------
 # Effect sizes (Cohen's d) via emmeans::eff_size
@@ -185,14 +221,14 @@ perm_results <- data.frame(numStims = character(), obs_diff = numeric(),
 
 for (dose in dose_levels) {
   dSub <- dataPerm[dataPerm$numStims == dose,]
-  obs_stat <- mean(dSub$magnitude[dSub$condition == "CL"]) -
-              mean(dSub$magnitude[dSub$condition == "PB"])
+  obs_stat <- median(dSub$magnitude[dSub$condition == "CL"]) -
+              median(dSub$magnitude[dSub$condition == "PB"])
 
   perm_stats <- numeric(nPerm)
   for (p in 1:nPerm) {
     shuf <- sample(dSub$condition)
-    perm_stats[p] <- mean(dSub$magnitude[shuf == "CL"]) -
-                     mean(dSub$magnitude[shuf == "PB"])
+    perm_stats[p] <- median(dSub$magnitude[shuf == "CL"]) -
+                     median(dSub$magnitude[shuf == "PB"])
   }
   p_val <- mean(abs(perm_stats) >= abs(obs_stat))
   perm_results <- rbind(perm_results,
@@ -201,33 +237,67 @@ for (dose in dose_levels) {
 
 perm_results
 
-# dose-response interaction: does the CL-PB gap grow from Base to [5,inf)?
-dBase <- dataPerm[dataPerm$numStims == "Base",]
-dHigh <- dataPerm[dataPerm$numStims == "[5,inf)",]
+# dose-response interaction: does the dose effect differ between CL and PB?
+# Permute dose labels (Base vs [5,inf)) WITHIN each condition separately.
+# This respects the session structure — CL and PB trials are from different
+# sessions and should not be shuffled across conditions. Dose labels ARE
+# exchangeable within a session.
+dCL <- dataPerm[dataPerm$condition == "CL" &
+                (dataPerm$numStims == "Base" | dataPerm$numStims == "[5,inf)"),]
+dPB <- dataPerm[dataPerm$condition == "PB" &
+                (dataPerm$numStims == "Base" | dataPerm$numStims == "[5,inf)"),]
 
-obs_base_diff <- mean(dBase$magnitude[dBase$condition == "CL"]) -
-                 mean(dBase$magnitude[dBase$condition == "PB"])
-obs_high_diff <- mean(dHigh$magnitude[dHigh$condition == "CL"]) -
-                 mean(dHigh$magnitude[dHigh$condition == "PB"])
-obs_interaction <- obs_high_diff - obs_base_diff
+# observed dose effect within each condition (median scale)
+obs_cl_dose <- median(dCL$magnitude[dCL$numStims == "[5,inf)"]) -
+               median(dCL$magnitude[dCL$numStims == "Base"])
+obs_pb_dose <- median(dPB$magnitude[dPB$numStims == "[5,inf)"]) -
+               median(dPB$magnitude[dPB$numStims == "Base"])
+obs_interaction <- obs_cl_dose - obs_pb_dose
 
 perm_interactions <- numeric(nPerm)
 for (p in 1:nPerm) {
-  shuf_base <- sample(dBase$condition)
-  shuf_high <- sample(dHigh$condition)
-  perm_base <- mean(dBase$magnitude[shuf_base == "CL"]) -
-               mean(dBase$magnitude[shuf_base == "PB"])
-  perm_high <- mean(dHigh$magnitude[shuf_high == "CL"]) -
-               mean(dHigh$magnitude[shuf_high == "PB"])
-  perm_interactions[p] <- perm_high - perm_base
+  # shuffle dose labels within CL
+  shuf_cl <- sample(dCL$numStims)
+  perm_cl_dose <- median(dCL$magnitude[shuf_cl == "[5,inf)"]) -
+                  median(dCL$magnitude[shuf_cl == "Base"])
+  # shuffle dose labels within PB
+  shuf_pb <- sample(dPB$numStims)
+  perm_pb_dose <- median(dPB$magnitude[shuf_pb == "[5,inf)"]) -
+                  median(dPB$magnitude[shuf_pb == "Base"])
+  perm_interactions[p] <- perm_cl_dose - perm_pb_dose
 }
 
 interaction_p <- mean(abs(perm_interactions) >= abs(obs_interaction))
 
-cat(sprintf("\nDose-response interaction (channel %d):\n", chanInt))
-cat(sprintf("  CL-PB at Base:    %6.1f uV\n", obs_base_diff))
-cat(sprintf("  CL-PB at [5,inf): %6.1f uV\n", obs_high_diff))
-cat(sprintf("  Interaction:      %6.1f uV   perm p = %.4f (two-sided)\n", obs_interaction, interaction_p))
+cat(sprintf("\nDose-response interaction — median, dose-permuted (channel %d):\n", chanInt))
+cat(sprintf("  CL dose effect ([5,inf) - Base):  %+6.1f uV\n", obs_cl_dose))
+cat(sprintf("  PB dose effect ([5,inf) - Base):  %+6.1f uV\n", obs_pb_dose))
+cat(sprintf("  Interaction (CL - PB):            %+6.1f uV   perm p = %.4f (two-sided)\n", obs_interaction, interaction_p))
+
+# same on log scale (robust to heavy tails)
+obs_cl_dose_log <- median(log(dCL$magnitude[dCL$numStims == "[5,inf)"])) -
+                   median(log(dCL$magnitude[dCL$numStims == "Base"]))
+obs_pb_dose_log <- median(log(dPB$magnitude[dPB$numStims == "[5,inf)"])) -
+                   median(log(dPB$magnitude[dPB$numStims == "Base"]))
+obs_interaction_log <- obs_cl_dose_log - obs_pb_dose_log
+
+perm_interactions_log <- numeric(nPerm)
+for (p in 1:nPerm) {
+  shuf_cl <- sample(dCL$numStims)
+  perm_cl_log <- median(log(dCL$magnitude[shuf_cl == "[5,inf)"])) -
+                 median(log(dCL$magnitude[shuf_cl == "Base"]))
+  shuf_pb <- sample(dPB$numStims)
+  perm_pb_log <- median(log(dPB$magnitude[shuf_pb == "[5,inf)"])) -
+                 median(log(dPB$magnitude[shuf_pb == "Base"]))
+  perm_interactions_log[p] <- perm_cl_log - perm_pb_log
+}
+
+interaction_p_log <- mean(abs(perm_interactions_log) >= abs(obs_interaction_log))
+
+cat(sprintf("\nDose-response interaction — log, dose-permuted (channel %d):\n", chanInt))
+cat(sprintf("  CL dose effect (log):  %+.4f (%+.1f%%)\n", obs_cl_dose_log, (exp(obs_cl_dose_log)-1)*100))
+cat(sprintf("  PB dose effect (log):  %+.4f (%+.1f%%)\n", obs_pb_dose_log, (exp(obs_pb_dose_log)-1)*100))
+cat(sprintf("  Interaction (log):     %+.4f   perm p = %.4f (two-sided)\n", obs_interaction_log, interaction_p_log))
 
 # store per-dose null distributions for plotting
 perm_null_dists <- list()
@@ -236,15 +306,15 @@ perm_ps_vec <- c()
 
 for (dose in dose_levels) {
   dSub <- dataPerm[dataPerm$numStims == dose,]
-  obs_stat <- mean(dSub$magnitude[dSub$condition == "CL"]) -
-              mean(dSub$magnitude[dSub$condition == "PB"])
+  obs_stat <- median(dSub$magnitude[dSub$condition == "CL"]) -
+              median(dSub$magnitude[dSub$condition == "PB"])
   obs_diffs_vec <- c(obs_diffs_vec, obs_stat)
 
   perm_stats <- numeric(nPerm)
   for (p in 1:nPerm) {
     shuf <- sample(dSub$condition)
-    perm_stats[p] <- mean(dSub$magnitude[shuf == "CL"]) -
-                     mean(dSub$magnitude[shuf == "PB"])
+    perm_stats[p] <- median(dSub$magnitude[shuf == "CL"]) -
+                     median(dSub$magnitude[shuf == "PB"])
   }
   perm_null_dists[[dose]] <- perm_stats
   perm_ps_vec <- c(perm_ps_vec, mean(abs(perm_stats) >= abs(obs_stat)))

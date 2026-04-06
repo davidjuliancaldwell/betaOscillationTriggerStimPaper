@@ -69,6 +69,7 @@ phaseDeliveryBinned45 = {};
 stimLevelCombined =[];
 phaseDelivery = [];
 phaseDeliveryBinned = [];
+probeSampleVec = [];
 %answer = input('use zscore or raw values? Enter "zscore" or "raw"  \n','s');
 
 % exclude playback for now
@@ -94,7 +95,29 @@ for sid = SIDS(1:end)
     
     load(strcat(subjid,['epSTATS-PP-sig' modifierEP '-new.mat']))
     load([sid '_phaseDelivery_allChans' modifierPhase '.mat']);
-    
+
+    % load stim/burst tables to get probe sample times
+    if strcmp(sid, '0b5a2ePlayBack')
+        stimTable = load(fullfile(folderData, 'stim_timing_data', '0b5a2e_tables.mat'), 'bursts', 'fs', 'stims');
+        stimTable.stims(2,:) = stimTable.stims(2,:) + 577869;
+        stimTable.bursts(2,:) = stimTable.bursts(2,:) + 577869;
+        stimTable.bursts(3,:) = stimTable.bursts(3,:) + 577869;
+    else
+        stimTable = load(fullfile(folderData, 'stim_timing_data', [sid '_tables.mat']), 'bursts', 'fs', 'stims');
+    end
+    stimTable.stims(:, stimTable.stims(2,:) < stimTable.fs/2) = [];
+    badProbes = stimTable.stims(3,:)==0 & (isnan(stimTable.stims(4,:)) | isnan(stimTable.stims(6,:)));
+    stimTable.stims(:, badProbes) = [];
+
+    % extract probe stim info (matching B_ExtractNeuralData_PP_reref.m)
+    probeStims = stimTable.stims(:, stimTable.stims(3,:)==0);
+    probeBaselines = probeStims(5,:) > 2 * stimTable.fs;
+    probeConditioned = probeStims(5,:) < 0.5 * stimTable.fs;
+    probeKeeps = probeBaselines | probeConditioned;
+    probeSampleTimes = probeStims(2,:);  % sample number for each probe
+    probeBurstTypes = stimTable.bursts(5, probeStims(4,:));  % burst type for each probe
+    types_sorted = unique(stimTable.bursts(5, probeStims(4,:)));
+
     % here's where I pick those channels!
     %  chan = betaChan;
     %   chans = betaChan;
@@ -183,11 +206,38 @@ for sid = SIDS(1:end)
                     end
                     
                     lengthItems = lengthItems +lengthType;
-                    vecType = repmat(desiredF(ii),lengthType,1);
+
+                    % Map data index ii to correct desiredF/peakPhaseVec index.
+                    % dataForPPanalysis{chan}{ii} holds EP data for burst
+                    % type types(ii), where types = sorted unique burst types.
+                    % peakPhaseVec and desiredF are indexed by the phase calc
+                    % loop ('indices'), where:
+                    %   index 1 = pos (stims(8)==1, rising, ~90 deg target)
+                    %   index 2 = neg (stims(8)==0, falling, ~270 deg target)
+                    % Since burst_type == stim_type (from ttype signal):
+                    %   burst_type 0 (falling/270) → neg → index 2
+                    %   burst_type 1 (rising/90)   → pos → index 1
+                    % burst type for this data index: dataForPPanalysis
+                    % is indexed by sorted burst type, so type = ii - 1
+                    % (burst types are 0-indexed: 0, 1, 2, ...)
+                    bt = ii - 1;
+                    if strcmp(type,'s')
+                        correctIdx = 1;
+                    elseif strcmp(type,'m')
+                        correctIdx = 2 - bt; % bt=0→2(neg), bt=1→1(pos)
+                    elseif strcmp(type,'t')
+                        % ecb43e: bt=0→1(pos), bt=1→2(neg), bt>=2→4(random)
+                        if bt == 0,     correctIdx = 1;
+                        elseif bt == 1, correctIdx = 2;
+                        else,           correctIdx = 4;
+                        end
+                    end
+
+                    vecType = repmat(desiredF(correctIdx),lengthType,1);
                     vecTypeC = string(vecType)';
                     anovaType = [anovaType{:} vecTypeC];
-                    
-                    phaseVecChosen = peakPhaseVec(ii,goodEPs==chan);
+
+                    phaseVecChosen = peakPhaseVec(correctIdx,goodEPs==chan);
                     phaseVec = repmat(phaseVecChosen,lengthType,1)';
                     phaseDelivery = [phaseDelivery phaseVec];
                     
@@ -234,36 +284,45 @@ for sid = SIDS(1:end)
                     if ii ==1
                         numTest = [];
                         tempTestOrdered = [];
+                        tempSamplesOrdered = [];
                         typeResp = [];
-                        
+
                         for iii = 2:length(unique(tempLabel))
-                            numTestTemp = repmat(['Test ' num2str(iii - 1)],sum(tempLabel(tempKeeps) == uniqueLabel(iii)),1);
+                            trialMask = tempLabel == uniqueLabel(iii) & tempKeeps;
+                            numTestTemp = repmat(['Test ' num2str(iii - 1)],sum(trialMask),1);
                             numTest = [numTest; numTestTemp];
-                            tempTestOrdered = [tempTestOrdered tempMag(tempLabel == uniqueLabel(iii) & tempKeeps)];
+                            tempTestOrdered = [tempTestOrdered tempMag(trialMask)];
+                            tempSamplesOrdered = [tempSamplesOrdered probeSampleTimes(trialMask)];
                         end
-                        typeResp = [  tempBase tempTestOrdered];
+                        baseMask = tempLabel==0 & tempKeeps;
+                        baseSamples = probeSampleTimes(baseMask);
+                        typeResp = [tempBase tempTestOrdered];
                         totalMags = [totalMags typeResp];
-                        
+                        probeSampleVec = [probeSampleVec baseSamples tempSamplesOrdered];
+
                         numBaseS = repmat('Base',length(tempBase),1);
                         bTest = cellstr(numTest)';
                         bC = cellstr(numBaseS)';
                         numStims = [numStims{:}  bC bTest  ];
-                        
+
                     else
                         numTest = [];
                         tempTestOrdered = [];
+                        tempSamplesOrdered = [];
                         typeResp = [];
-                        
+
                         for iii = 2:length(unique(tempLabel))
-                            numTestTemp = repmat(['Test ' num2str(iii - 1)],sum(tempLabel(tempKeeps) == uniqueLabel(iii)),1);
+                            trialMask = tempLabel == uniqueLabel(iii) & tempKeeps;
+                            numTestTemp = repmat(['Test ' num2str(iii - 1)],sum(trialMask),1);
                             numTest = [numTest; numTestTemp];
-                            tempTestOrdered = [tempTestOrdered tempMag(tempLabel == uniqueLabel(iii) & tempKeeps)];
-                            
+                            tempTestOrdered = [tempTestOrdered tempMag(trialMask)];
+                            tempSamplesOrdered = [tempSamplesOrdered probeSampleTimes(trialMask)];
                         end
-                        
+
                         typeResp = [tempTestOrdered];
                         totalMags = [totalMags typeResp];
-                        
+                        probeSampleVec = [probeSampleVec tempSamplesOrdered];
+
                         bTest = cellstr(numTest)';
                         numStims = [numStims{:} bTest];
                     end
@@ -298,16 +357,19 @@ for sid = SIDS(1:end)
                         
                         numTest = [];
                         tempTestOrdered = [];
+                        tempSamplesOrdered = [];
                         typeResp = [];
-                        
-                        numTestTemp = repmat(['Null'],sum(tempLabel(tempKeeps) == uniqueLabel(2)),1);
+
+                        nullMask = tempLabel == uniqueLabel(2) & tempKeeps;
+                        numTestTemp = repmat(['Null'],sum(nullMask),1);
                         numTest = [numTest; numTestTemp];
-                        tempTestOrdered = [tempTestOrdered tempMag(tempLabel == uniqueLabel(2) & tempKeeps)];
-                        
-                        
+                        tempTestOrdered = [tempTestOrdered tempMag(nullMask)];
+                        tempSamplesOrdered = [tempSamplesOrdered probeSampleTimes(nullMask)];
+
                         typeResp = [tempTestOrdered];
                         totalMags = [totalMags typeResp];
-                        
+                        probeSampleVec = [probeSampleVec tempSamplesOrdered];
+
                         bTest = cellstr(numTest)';
                         numStims = [numStims{:} bTest];
                     end
@@ -328,8 +390,8 @@ for sid = SIDS(1:end)
     end
 end
 %%
-tableBetaStim = table(totalMags',stimLevelCombined',categorical(numStims)',categorical(betaLabels)',categorical(betaSID)',categorical(chanLabels)',categorical(subjectNumVec'),categorical(phaseDeliveryBinned'),categorical(anovaType'),categorical(phaseDeliveryBinned45')...
-    ,'VariableNames',{'magnitude','stimLevel','numStims','betaLabels','sid','channel','subjectNum','phaseClass','setToDeliverPhase','phaseDeliveryBinned45'});
+tableBetaStim = table(totalMags',stimLevelCombined',categorical(numStims)',categorical(betaLabels)',categorical(betaSID)',categorical(chanLabels)',categorical(subjectNumVec'),categorical(phaseDeliveryBinned'),categorical(anovaType'),categorical(phaseDeliveryBinned45'),probeSampleVec'...
+    ,'VariableNames',{'magnitude','stimLevel','numStims','betaLabels','sid','channel','subjectNum','phaseClass','setToDeliverPhase','phaseDeliveryBinned45','probeSample'});
 % group stats
 
 statarray = grpstats(tableBetaStim,{'sid','numStims','channel','phaseClass'},{'mean','sem'},...

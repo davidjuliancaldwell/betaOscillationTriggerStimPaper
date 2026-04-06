@@ -48,12 +48,12 @@ for (name in unique(data$sid)){
     for (numStimTrial in unique(data$numStims)){
       numBase = nrow(data[data$sid == name & data$channel == chan & data$numStims == 'Base',])
       base = data[data$sid == name & data$channel == chan & data$numStims == 'Base',]$magnitude
-      baseMean = mean(base)
-      data[data$sid == name & data$channel == chan & data$numStims == 'Base',]$percentDiff = 100*(base - baseMean)/baseMean
+      baseMedian = median(base)
+      data[data$sid == name & data$channel == chan & data$numStims == 'Base',]$percentDiff = 100*(base - baseMedian)/baseMedian
       for (typePhase in unique(data$phaseClass)){
-        percentDiff = 100*((data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude)-baseMean)/baseMean
+        percentDiff = 100*((data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude)-baseMedian)/baseMedian
         data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$percentDiff = percentDiff
-        absDiff = data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude-baseMean
+        absDiff = data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$magnitude-baseMedian
         data[data$sid == name & data$channel == chan & data$numStims == numStimTrial & data$phaseClass == typePhase,]$absDiff = absDiff
          }
     }
@@ -66,7 +66,7 @@ dataNoBaseline = data[data$numStims != "Base",]
 dataSubjOnly <- subset(data, data$sid=='ecb43e')
 dataSubjChanOnly <- subset(dataSubjOnly, dataSubjOnly$channel == chanInt1 & dataSubjOnly$numStims != 'Base')
 
-summaryData = ddply(dataSubjOnly, .(sid,setToDeliverPhase,numStims,channel,betaLabels), summarize, percentDiff = mean(percentDiff))
+summaryData = ddply(dataSubjOnly, .(sid,setToDeliverPhase,numStims,channel,betaLabels), summarize, percentDiff = median(percentDiff))
 summaryDataChan = subset(summaryData, summaryData$channel == chanInt1)
 
 # ------------------------------------------------------------------------
@@ -154,14 +154,14 @@ for (target in target_phases) {
     n_targ <- sum(dSub$cond == "targeted")
     n_rand <- sum(dSub$cond == "random")
 
-    obs_stat <- mean(dSub$magnitude[dSub$cond == "targeted"]) -
-                mean(dSub$magnitude[dSub$cond == "random"])
+    obs_stat <- median(dSub$magnitude[dSub$cond == "targeted"]) -
+                median(dSub$magnitude[dSub$cond == "random"])
 
     perm_stats <- numeric(nPerm)
     for (p in 1:nPerm) {
       shuf <- sample(dSub$cond)
-      perm_stats[p] <- mean(dSub$magnitude[shuf == "targeted"]) -
-                       mean(dSub$magnitude[shuf == "random"])
+      perm_stats[p] <- median(dSub$magnitude[shuf == "targeted"]) -
+                       median(dSub$magnitude[shuf == "random"])
     }
     p_val <- mean(abs(perm_stats) >= abs(obs_stat))
 
