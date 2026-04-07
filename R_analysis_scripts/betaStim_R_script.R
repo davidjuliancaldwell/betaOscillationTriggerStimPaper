@@ -17,6 +17,8 @@ library('afex')
 library('report')
 library('effectsize')
 library('performance')
+library('officer')
+library('flextable')
 
 # log data prior to fitting?
 log_data = FALSE
@@ -1125,3 +1127,333 @@ eff_size(emm_4b_phase, sigma = sigma_trial, edf = edf_trial)
 # Model 4c: phase contrast at each dose (within-channel only)
 cat("--- Model 4c (within-channel): phase at each dose ---\n")
 eff_size(emm_4c_phase, sigma = sigma_trial, edf = edf_trial)
+
+# ========================================================================
+# Residual diagnostics: skewness, kurtosis, normality tests
+# ========================================================================
+# Evaluate residual distributions for all summary-level models (3a-3e).
+# Guidelines: |skewness| < 1 and |excess kurtosis| < 2 are acceptable
+# for LME with these sample sizes. Shapiro-Wilk is conservative at n=120+.
+
+residual_diagnostics <- function(fit, model_name) {
+  r <- resid(fit)
+  n <- length(r)
+  sw <- shapiro.test(r)
+  skew <- (sum((r - mean(r))^3) / n) / (sum((r - mean(r))^2) / n)^1.5
+  kurt <- (sum((r - mean(r))^4) / n) / (sum((r - mean(r))^2) / n)^2 - 3
+
+  cat(sprintf("\n--- %s ---\n", model_name))
+  cat("N residuals:", n, "\n")
+  cat("Shapiro-Wilk W =", round(sw$statistic, 4),
+      ", p =", format(sw$p.value, digits = 3), "\n")
+  cat("Skewness:", round(skew, 3), "\n")
+  cat("Excess kurtosis:", round(kurt, 3), "\n")
+
+  data.frame(
+    Model = model_name, N = n,
+    Shapiro_W = round(sw$statistic, 4),
+    Shapiro_p = sw$p.value,
+    Skewness = round(skew, 3),
+    Kurtosis = round(kurt, 3),
+    stringsAsFactors = FALSE
+  )
+}
+
+cat("\n=== RESIDUAL DIAGNOSTICS (summary-level models) ===\n")
+diag_list <- list(
+  residual_diagnostics(fit.absDiff, "3a: absDiff"),
+  residual_diagnostics(fit.modelD, "3b: Baseline category"),
+  residual_diagnostics(fit.ancova, "3c: ANCOVA"),
+  residual_diagnostics(fit.ordinal_lmer, "3d: Ordinal"),
+  residual_diagnostics(fit.numeric, "3e: Numeric")
+)
+diag_df <- do.call(rbind, diag_list)
+print(diag_df)
+
+# --- ggplot QQ plots and residuals-vs-fitted for all summary models ---
+if (savePlot) {
+  summary_models <- list(
+    list(fit = fit.absDiff, name = "3a_absDiff"),
+    list(fit = fit.modelD, name = "3b_baseline"),
+    list(fit = fit.ancova, name = "3c_ANCOVA"),
+    list(fit = fit.ordinal_lmer, name = "3d_ordinal"),
+    list(fit = fit.numeric, name = "3e_numeric")
+  )
+
+  figHeight <- 5
+  figWidth <- 6
+
+  for (m in summary_models) {
+    r <- resid(m$fit)
+    n <- length(r)
+    skew_val <- (sum((r - mean(r))^3) / n) / (sum((r - mean(r))^2) / n)^1.5
+    kurt_val <- (sum((r - mean(r))^4) / n) / (sum((r - mean(r))^2) / n)^2 - 3
+
+    # QQ plot
+    qq_df <- data.frame(residual = r)
+    p_qq <- ggplot(qq_df, aes(sample = residual)) +
+      stat_qq(alpha = 0.6) + stat_qq_line(color = "red", linewidth = 0.8) +
+      theme_light(base_size = 14) +
+      labs(title = paste("QQ Plot: Model", m$name),
+           subtitle = sprintf("Skew = %.2f, Kurtosis = %.2f", skew_val, kurt_val),
+           x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+    ggsave(here("output_plots", paste0("betaStim_qq_", m$name, ".png")),
+           plot = p_qq, units = "in", width = figWidth, height = figHeight, dpi = 600)
+
+    # Residuals vs fitted
+    rf_df <- data.frame(fitted = fitted(m$fit), residual = r)
+    p_rf <- ggplot(rf_df, aes(x = fitted, y = residual)) +
+      geom_point(alpha = 0.5) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+      geom_smooth(method = "loess", se = TRUE, color = "blue", linewidth = 0.8) +
+      theme_light(base_size = 14) +
+      labs(title = paste("Residuals vs Fitted: Model", m$name),
+           x = "Fitted Values", y = "Residuals")
+
+    ggsave(here("output_plots", paste0("betaStim_resid_vs_fitted_", m$name, ".png")),
+           plot = p_rf, units = "in", width = figWidth, height = figHeight, dpi = 600)
+  }
+}
+
+# ========================================================================
+# Export manuscript-ready .docx tables (officer + flextable)
+# ========================================================================
+if (requireNamespace("officer", quietly = TRUE) &&
+    requireNamespace("flextable", quietly = TRUE)) {
+  library(officer)
+  library(flextable)
+
+  fmt_p <- function(p) ifelse(p < 0.001, "< 0.001", sprintf("%.3f", p))
+
+  outputDir <- here("output_plots")
+  doc <- read_docx()
+
+  # ------------------------------------------------------------------
+  # Table 1: Residual Diagnostics
+  # ------------------------------------------------------------------
+  diag_out <- diag_df
+  diag_out$Shapiro_p <- sapply(diag_out$Shapiro_p, fmt_p)
+  doc <- body_add_par(doc, "Table: Residual Diagnostics", style = "heading 2")
+  ft <- flextable(diag_out) |> autofit() |>
+    set_caption("Residual normality diagnostics for summary-level models (3a-3e). Skewness and excess kurtosis computed from standardized residuals; Shapiro-Wilk tests normality.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # ------------------------------------------------------------------
+  # Table 2: Model Comparison Summary
+  # ------------------------------------------------------------------
+  comparison_df <- data.frame(
+    Model = c("3a: absDiff (intercepts)",
+              "3b: Magnitude + baseline",
+              "3c: ANCOVA (primary)",
+              "3d: Ordinal dose",
+              "3e: Numeric dose"),
+    N = c(nrow(summaryNB), nrow(summaryAll), nrow(summaryNB_ancova),
+          nrow(summaryNB_ancova), nrow(summaryNB_ancova)),
+    AIC = round(c(AIC(fit.absDiff), AIC(fit.modelD), AIC(fit.ancova),
+                   AIC(fit.ordinal_lmer), AIC(fit.numeric)), 1),
+    BIC = round(c(BIC(fit.absDiff), BIC(fit.modelD), BIC(fit.ancova),
+                   BIC(fit.ordinal_lmer), BIC(fit.numeric)), 1),
+    Singular = c(isSingular(fit.absDiff), isSingular(fit.modelD),
+                 isSingular(fit.ancova), isSingular(fit.ordinal_lmer),
+                 isSingular(fit.numeric)),
+    stringsAsFactors = FALSE
+  )
+  doc <- body_add_par(doc, "Table: Model Comparison", style = "heading 2")
+  ft <- flextable(comparison_df) |> autofit() |>
+    set_caption("Summary-level model comparison. All models use median per (subject x channel x phaseClass x dose) cell.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # ------------------------------------------------------------------
+  # Helper: add ANOVA + Fixed Effects + Random Effects for a model
+  # ------------------------------------------------------------------
+  add_model_tables <- function(doc, fit, model_label) {
+    # Random Effects
+    vc <- VarCorr(fit)
+    ngrps <- summary(fit)$ngrps
+    re_rows <- list()
+    for (nm in names(vc)) {
+      v <- vc[[nm]]
+      ng <- as.character(ngrps[nm])
+      if (ncol(v) == 1) {
+        re_rows[[length(re_rows) + 1]] <- data.frame(
+          Component = nm, Term = "(Intercept)",
+          Variance = round(v[1, 1], 4), SD = round(sqrt(v[1, 1]), 4),
+          Corr = "", Groups = ng, stringsAsFactors = FALSE)
+      } else {
+        corr_val <- sprintf("%.2f", attr(v, "correlation")[2, 1])
+        re_rows[[length(re_rows) + 1]] <- data.frame(
+          Component = c(nm, ""), Term = rownames(v),
+          Variance = round(diag(v), 4), SD = round(sqrt(diag(v)), 4),
+          Corr = c("", corr_val), Groups = c(ng, ""),
+          stringsAsFactors = FALSE)
+      }
+    }
+    re_df <- do.call(rbind, re_rows)
+    re_df <- rbind(re_df, data.frame(
+      Component = "Residual", Term = "",
+      Variance = round(sigma(fit)^2, 4), SD = round(sigma(fit), 4),
+      Corr = "", Groups = ""))
+
+    doc <- body_add_par(doc, paste("Random Effects:", model_label), style = "heading 2")
+    ft <- flextable(re_df) |> autofit() |>
+      set_caption(paste("Random effects for", model_label))
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, sprintf("Singular: %s. AIC = %.1f", isSingular(fit), AIC(fit)))
+    doc <- body_add_par(doc, "")
+
+    # Type III ANOVA
+    aov_tbl <- as.data.frame(anova(fit, type = 3))
+    aov_tbl$Effect <- rownames(aov_tbl)
+    aov_tbl <- aov_tbl[, c("Effect", "Sum Sq", "Mean Sq", "NumDF", "DenDF", "F value", "Pr(>F)")]
+    aov_tbl$`Sum Sq` <- round(aov_tbl$`Sum Sq`, 3)
+    aov_tbl$`Mean Sq` <- round(aov_tbl$`Mean Sq`, 3)
+    aov_tbl$DenDF <- round(aov_tbl$DenDF, 1)
+    aov_tbl$`F value` <- round(aov_tbl$`F value`, 2)
+    aov_tbl$p <- sapply(aov_tbl$`Pr(>F)`, fmt_p)
+    aov_tbl$`Pr(>F)` <- NULL
+
+    doc <- body_add_par(doc, paste("Type III ANOVA:", model_label), style = "heading 2")
+    ft <- flextable(aov_tbl) |> autofit() |>
+      set_caption(paste("Type III ANOVA (Satterthwaite df) for", model_label))
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+
+    # Fixed Effects
+    fe_tbl <- as.data.frame(summary(fit)$coefficients)
+    fe_tbl$Predictor <- rownames(fe_tbl)
+    fe_tbl <- fe_tbl[, c("Predictor", "Estimate", "Std. Error", "df", "t value", "Pr(>|t|)")]
+    fe_tbl$Estimate <- round(fe_tbl$Estimate, 3)
+    fe_tbl$`Std. Error` <- round(fe_tbl$`Std. Error`, 3)
+    fe_tbl$df <- round(fe_tbl$df, 1)
+    fe_tbl$`t value` <- round(fe_tbl$`t value`, 2)
+    fe_tbl$p <- sapply(fe_tbl$`Pr(>|t|)`, fmt_p)
+    fe_tbl$`Pr(>|t|)` <- NULL
+
+    doc <- body_add_par(doc, paste("Fixed Effects:", model_label), style = "heading 2")
+    ft <- flextable(fe_tbl) |> autofit() |>
+      set_caption(paste("Fixed effect coefficients for", model_label))
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+
+    doc
+  }
+
+  # ------------------------------------------------------------------
+  # Tables for primary models: 3a, 3c, 3e
+  # ------------------------------------------------------------------
+  doc <- add_model_tables(doc, fit.absDiff, "Model 3a (absDiff, intercepts only)")
+  doc <- add_model_tables(doc, fit.ancova, "Model 3c (ANCOVA, primary)")
+  doc <- add_model_tables(doc, fit.numeric, "Model 3e (numeric dose)")
+
+  # ------------------------------------------------------------------
+  # EMM Dose Contrasts: Model 3a
+  # ------------------------------------------------------------------
+  dose_3a_tbl <- as.data.frame(confint(pairs(emm_3a_dose)))
+  dose_3a_tbl$estimate <- round(dose_3a_tbl$estimate, 3)
+  dose_3a_tbl$SE <- round(dose_3a_tbl$SE, 3)
+  dose_3a_tbl$df <- round(dose_3a_tbl$df, 1)
+  dose_3a_tbl$lower.CL <- round(dose_3a_tbl$lower.CL, 3)
+  dose_3a_tbl$upper.CL <- round(dose_3a_tbl$upper.CL, 3)
+  names(dose_3a_tbl)[names(dose_3a_tbl) == "lower.CL"] <- "CI lower"
+  names(dose_3a_tbl)[names(dose_3a_tbl) == "upper.CL"] <- "CI upper"
+  doc <- body_add_par(doc, "EMM Dose Contrasts: Model 3a", style = "heading 2")
+  ft <- flextable(dose_3a_tbl) |> autofit() |>
+    set_caption("Pairwise dose contrasts within each phase class (Model 3a, Tukey-adjusted)")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # EMM Phase Contrasts: Model 3a
+  phase_3a_tbl <- as.data.frame(confint(pairs(emm_3a_phase)))
+  phase_3a_tbl$estimate <- round(phase_3a_tbl$estimate, 3)
+  phase_3a_tbl$SE <- round(phase_3a_tbl$SE, 3)
+  phase_3a_tbl$df <- round(phase_3a_tbl$df, 1)
+  phase_3a_tbl$lower.CL <- round(phase_3a_tbl$lower.CL, 3)
+  phase_3a_tbl$upper.CL <- round(phase_3a_tbl$upper.CL, 3)
+  names(phase_3a_tbl)[names(phase_3a_tbl) == "lower.CL"] <- "CI lower"
+  names(phase_3a_tbl)[names(phase_3a_tbl) == "upper.CL"] <- "CI upper"
+  doc <- body_add_par(doc, "EMM Phase Contrasts: Model 3a", style = "heading 2")
+  ft <- flextable(phase_3a_tbl) |> autofit() |>
+    set_caption("Phase contrasts at each dose level (Model 3a)")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # ------------------------------------------------------------------
+  # EMM Dose Contrasts: Model 3c (ANCOVA, primary)
+  # ------------------------------------------------------------------
+  dose_3c_tbl <- as.data.frame(confint(pairs(emm_3c_dose)))
+  dose_3c_tbl$estimate <- round(dose_3c_tbl$estimate, 3)
+  dose_3c_tbl$SE <- round(dose_3c_tbl$SE, 3)
+  dose_3c_tbl$df <- round(dose_3c_tbl$df, 1)
+  dose_3c_tbl$lower.CL <- round(dose_3c_tbl$lower.CL, 3)
+  dose_3c_tbl$upper.CL <- round(dose_3c_tbl$upper.CL, 3)
+  names(dose_3c_tbl)[names(dose_3c_tbl) == "lower.CL"] <- "CI lower"
+  names(dose_3c_tbl)[names(dose_3c_tbl) == "upper.CL"] <- "CI upper"
+  doc <- body_add_par(doc, "EMM Dose Contrasts: Model 3c (ANCOVA)", style = "heading 2")
+  ft <- flextable(dose_3c_tbl) |> autofit() |>
+    set_caption("Pairwise dose contrasts within each phase class (Model 3c ANCOVA, Tukey-adjusted)")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # EMM Phase Contrasts: Model 3c
+  phase_3c_tbl <- as.data.frame(confint(pairs(emm_3c_phase)))
+  phase_3c_tbl$estimate <- round(phase_3c_tbl$estimate, 3)
+  phase_3c_tbl$SE <- round(phase_3c_tbl$SE, 3)
+  phase_3c_tbl$df <- round(phase_3c_tbl$df, 1)
+  phase_3c_tbl$lower.CL <- round(phase_3c_tbl$lower.CL, 3)
+  phase_3c_tbl$upper.CL <- round(phase_3c_tbl$upper.CL, 3)
+  names(phase_3c_tbl)[names(phase_3c_tbl) == "lower.CL"] <- "CI lower"
+  names(phase_3c_tbl)[names(phase_3c_tbl) == "upper.CL"] <- "CI upper"
+  doc <- body_add_par(doc, "EMM Phase Contrasts: Model 3c (ANCOVA)", style = "heading 2")
+  ft <- flextable(phase_3c_tbl) |> autofit() |>
+    set_caption("Phase contrasts at each dose level (Model 3c ANCOVA)")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # ------------------------------------------------------------------
+  # Effect Sizes (Cohen's d): Models 3a and 3c
+  # ------------------------------------------------------------------
+  # Dose within phase
+  es_3a_dose <- as.data.frame(confint(eff_size(emm_3a_dose, sigma = sigma_trial, edf = edf_trial)))
+  es_3a_dose$effect.size <- round(es_3a_dose$effect.size, 3)
+  es_3a_dose$SE <- round(es_3a_dose$SE, 3)
+  es_3a_dose$lower.CL <- round(es_3a_dose$lower.CL, 3)
+  es_3a_dose$upper.CL <- round(es_3a_dose$upper.CL, 3)
+  es_3a_dose$df <- round(es_3a_dose$df, 1)
+  names(es_3a_dose)[names(es_3a_dose) == "effect.size"] <- "Cohen's d"
+  names(es_3a_dose)[names(es_3a_dose) == "lower.CL"] <- "CI lower"
+  names(es_3a_dose)[names(es_3a_dose) == "upper.CL"] <- "CI upper"
+  doc <- body_add_par(doc, "Effect Sizes: Model 3a Dose Contrasts", style = "heading 2")
+  ft <- flextable(es_3a_dose) |> autofit() |>
+    set_caption(sprintf("Cohen's d for dose contrasts (Model 3a). Denominator sigma = %.1f uV (trial-level residual SD from Model 4).", sigma_trial))
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  es_3c_dose <- as.data.frame(confint(eff_size(emm_3c_dose, sigma = sigma_trial, edf = edf_trial)))
+  es_3c_dose$effect.size <- round(es_3c_dose$effect.size, 3)
+  es_3c_dose$SE <- round(es_3c_dose$SE, 3)
+  es_3c_dose$lower.CL <- round(es_3c_dose$lower.CL, 3)
+  es_3c_dose$upper.CL <- round(es_3c_dose$upper.CL, 3)
+  es_3c_dose$df <- round(es_3c_dose$df, 1)
+  names(es_3c_dose)[names(es_3c_dose) == "effect.size"] <- "Cohen's d"
+  names(es_3c_dose)[names(es_3c_dose) == "lower.CL"] <- "CI lower"
+  names(es_3c_dose)[names(es_3c_dose) == "upper.CL"] <- "CI upper"
+  doc <- body_add_par(doc, "Effect Sizes: Model 3c Dose Contrasts", style = "heading 2")
+  ft <- flextable(es_3c_dose) |> autofit() |>
+    set_caption(sprintf("Cohen's d for dose contrasts (Model 3c ANCOVA). Denominator sigma = %.1f uV.", sigma_trial))
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # ------------------------------------------------------------------
+  # Save .docx
+  # ------------------------------------------------------------------
+  docx_path <- paste0(outputDir, "/betaStim_statistical_tables.docx")
+  print(doc, target = docx_path)
+  cat("Saved manuscript tables to:", docx_path, "\n")
+
+} else {
+  cat("Install officer and flextable packages for .docx export:\n")
+  cat("  install.packages(c('officer', 'flextable'))\n")
+}

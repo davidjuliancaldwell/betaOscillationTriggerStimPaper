@@ -10,7 +10,7 @@ Analysis pipeline for the paper "Dose Dependent Enhancement of Cortically Evoked
 
 **MATLAB** (primary): Open MATLAB in the repo root, then run `master_script_betaStim.m`. Set `generateIntermediateData = 1` for the full pipeline (stim table building, peak extraction, phase calculation), or `0` to skip data generation and only produce plots/tables.
 
-**R** (statistical analysis): Run `R_analysis_scripts/betaStim_R_script.R` after MATLAB has generated the output CSV in `data/output_table/`. Requires packages: lme4, lmerTest, afex, emmeans, sjPlot, multcomp, ggplot2, plyr, dplyr, Hmisc, here.
+**R** (statistical analysis): Run `R_analysis_scripts/betaStim_R_script.R` after MATLAB has generated the output CSV in `data/output_table/`. Requires packages: lme4, lmerTest, afex, emmeans, sjPlot, multcomp, ggplot2, plyr, dplyr, Hmisc, here, effectsize, performance, report, officer, flextable.
 
 ## Pipeline Architecture
 
@@ -123,5 +123,24 @@ Model comparison (all on median, after phaseClass fix):
 | 3e (numeric, linear) | 917 | 0.106 | **0.615** | ns |
 
 **Critical bug fix (2026-04-06)**: `multipleSubj_GLMM_script_PP.m` had a phase label swap for multi-phase subjects — both `phaseClass` and `setToDeliverPhase` were inverted for c91479, 0b5a2e, 0b5a2ePlayBack. The previously reported phase × dose interaction (p = 0.045-0.110) was an artifact. After fix, the interaction is non-significant (p = 0.62-0.86). The dose main effect remains significant in the no-random-slopes sensitivity analysis (Model 3a).
+
+## Residual Diagnostics
+
+`betaStim_R_script.R` includes residual diagnostics for all five summary-level models (3a-3e):
+- **Shapiro-Wilk** normality test
+- **Skewness** and **excess kurtosis** (moment-based, computed from raw residuals)
+- **ggplot2 QQ plots** with skewness/kurtosis annotated in subtitles, saved to `output_plots/betaStim_qq_3{a-e}_*.png`
+- **Residuals-vs-fitted plots** with loess smoother, saved to `output_plots/betaStim_resid_vs_fitted_3{a-e}_*.png`
+
+Current findings: skewness is acceptable (|skew| < 1 across all models), but excess kurtosis is elevated (5-7), indicating heavy tails from a few channels with extreme CEP values. LME is relatively robust to leptokurtic residuals at these sample sizes.
+
+## Manuscript .docx Export
+
+The R script generates `output_plots/betaStim_statistical_tables.docx` using `officer` + `flextable`, containing:
+- Residual diagnostics table (Shapiro-Wilk, skewness, kurtosis for all 5 models)
+- Model comparison table (AIC, BIC, singularity status)
+- Random effects, Type III ANOVA (Satterthwaite df), and fixed effects tables for models 3a, 3c, 3e
+- EMM pairwise dose and phase contrasts with 95% CIs (Tukey-adjusted)
+- Cohen's d effect size tables for dose contrasts
 
 `R_analysis_scripts/R_compare_control_cond.R` compares closed-loop (0b5a2e) vs playback control (0b5a2ePlayBack) with Cohen's d effect sizes and permutation tests (using median as test statistic). See `statistical_audit.md` for full findings.
