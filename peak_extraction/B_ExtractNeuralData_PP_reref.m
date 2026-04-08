@@ -85,7 +85,7 @@ for idx = 1:1
         case '0b5a2e' % added DJC 7-23-2015
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
             stims = [22 30];
-            betaChan = 23;
+            betaChan = 31;
             goods = [14 21 23 31];
             bads = [24 25 29];
             t_min = 0.005;

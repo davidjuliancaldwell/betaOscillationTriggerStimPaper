@@ -567,3 +567,57 @@ The 2 removed stimuli in the NEW table were in-burst conditioning pulses with an
 The phase calculation (`B_phaseCalc_allChans_processed.m`) was likely not rerun after the table rebuild — the commit hardcoded `idxVec = [7:7]` (subject 7 only) and `chans = 64` (debug settings). However, since the per-condition in-burst stim counts and times are identical between tables, rerunning the phase calculation would produce the same results.
 
 A third variant (`ecb43e_tables_modDJC.mat`, 106,672 bytes) exists with 1,553 bursts (vs 1,169), suggesting a different burst-detection parameterization. This variant is not used in the current pipeline.
+
+---
+
+## Finding 22: Phase label verification and betaChan consistency audit (2026-04-08)
+
+**Verification script**: `verify_phase_consistency.m` loads each subject's phase `.mat` file from `data/phase_data/`, computes circular mean phase for EP channels with good fits (r² > 0.7, freq 12.01–19.99 Hz), and checks:
+1. Whether the measured circular mean at each beta reference channel is closer to the stated target or its opposite (target + 180°)
+2. Whether the phaseClass bin (>180° → 270, ≤180° → 90) is consistent with the target
+3. c91479's 0°/180° targets specifically (on the bin boundary)
+4. Single-phase subjects' target-vs-opposite consistency
+
+### betaChan inconsistency in `B_ExtractNeuralData_PP_reref.m`
+
+The authoritative `valueSet` in `multipleSubj_GLMM_script_PP.m` (line 29) defines **betaChan=31** for both 0b5a2e and 0b5a2ePlayBack. This is consistent across all scripts (`plot_example_subject_phases.m`, `PhaseExtract_BetaRecordingChannel.m`, `examineRandomSubjectDelivery.m`, `BETA_manuscript_bars_compare0b5a2e_PP.m`, `BETA_manuscript_bars_phaseDiff.m`, `BETA_manuscript_bars_phaseDiff_ecb43e.m`, `plot_example_dose_dependent_time_series.m`).
+
+**Exception**: `B_ExtractNeuralData_PP_reref.m` line 88 had `betaChan = 23` for 0b5a2e (while correctly setting 31 for 0b5a2ePlayBack). This variable is defined but **never referenced** in the extraction loop, so it had no effect on output data. **Fixed** to 31 on 2026-04-08.
+
+### Beta reference channel verification results
+
+| Subject | betaChan | Cond | Target | CircMean | Diff | Bin | Status |
+|---------|----------|------|--------|----------|------|-----|--------|
+| d5cd55 | 53 | all | 180° | 173.6° | 6.4° | 90 | OK |
+| c91479 | 64 | pos | 0° | 20.6° | 20.6° | 90 | OK |
+| c91479 | 64 | neg | 180° | 211.7° | 31.7° | 270 | OK |
+| 7dbdec | 4 | all | 180° | 169.0° | 11.0° | 90 | OK |
+| 9ab7ab | 51 | all | 270° | 270.8° | 0.8° | 270 | OK |
+| 702d24 | 5 | pos | 90° | 109.2° | 19.2° | 90 | OK |
+| 702d24 | 5 | neg | 270° | 307.5° | 37.5° | 270 | OK |
+| ecb43e | 55 | pos | 270° | 259.8° | 10.2° | 270 | OK |
+| ecb43e | 55 | neg | 90° | 130.4° | 40.4° | 90 | OK |
+| 0b5a2e | 31 | pos | 90° | 109.4° | 19.4° | 90 | OK |
+| 0b5a2e | 31 | neg | 270° | 296.8° | 26.8° | 270 | OK |
+| 0b5a2ePlayBack | 31 | pos | 90° | 80.3° | 9.7° | 90 | OK |
+| **0b5a2ePlayBack** | **31** | **neg** | **270°** | **0.1°** | **90.1°** | **90** | **WRONG HALF** |
+
+All beta reference channels map correctly **except 0b5a2ePlayBack neg condition** — the playback replayed stimulation timing from the original session but with a temporal offset, so phase locking to the live beta oscillation is not expected.
+
+### c91479 0°/180° target verification
+
+c91479 `desiredF = [0, 180]` places the neg target on the 90/270 bin boundary. All EP channels (47, 48, 64) show pos circMean closer to 0° and neg circMean closer to 180°. No swap detected. Ch64 (beta ref) neg circMean = 211.7° bins to 270; ch47 neg circMean = 154.4° bins to 90 (borderline but correct — closer to 180° than to 0°).
+
+### Single-phase subject verification
+
+| Subject | Target | Channels correct / total | Mismatch channels |
+|---------|--------|------------------------|-------------------|
+| d5cd55 | 180° | 8 / 9 | ch63 (circMean=63.1°, closer to 0°) |
+| 7dbdec | 180° | 3 / 4 | ch10 (circMean=332.1°, closer to 0°) |
+| 9ab7ab | 270° | 8 / 8 | none (ch43 had zero good fits) |
+
+Isolated mismatches on non-reference channels are expected from cortical beta phase propagation gradients.
+
+### ecb43e inverted hardware convention
+
+ecb43e is the only subject where `ptsPos = stims(8)==0` and `ptsNeg = stims(8)==1` in `B_phaseCalc_allChans_processed.m` (lines 190–191), the reverse of all other multi-phase subjects. This is compensated by `desiredF = [270, 90, ...]` (flipped from the standard [90, 270]) and the type `'t'` branch in the `correctIdx` mapping. Verified correct: ch55 (beta ref) pos circMean=259.8° (target 270°) and neg circMean=130.4° (target 90°).

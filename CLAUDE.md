@@ -124,6 +124,33 @@ Model comparison (all on median, after phaseClass fix):
 
 **Critical bug fix (2026-04-06)**: `multipleSubj_GLMM_script_PP.m` had a phase label swap for multi-phase subjects — both `phaseClass` and `setToDeliverPhase` were inverted for c91479, 0b5a2e, 0b5a2ePlayBack. The previously reported phase × dose interaction (p = 0.045-0.110) was an artifact. After fix, the interaction is non-significant (p = 0.62-0.86). The dose main effect remains significant in the no-random-slopes sensitivity analysis (Model 3a).
 
+## Phase Label Verification
+
+`verify_phase_consistency.m` validates that measured phase-at-delivery (circular mean from sinfit) is consistent with intended target phase for every subject's beta reference channel. Run from repo root in MATLAB.
+
+### Beta reference channels (from `valueSet` in `multipleSubj_GLMM_script_PP.m`)
+
+| Subject | betaChan | Type | desiredF | Hardware convention |
+|---------|----------|------|----------|-------------------|
+| d5cd55 | 53 | s | 180 | Single condition |
+| c91479 | 64 | m | [0, 180] | stims(8)==1→pos(0°), stims(8)==0→neg(180°) |
+| 7dbdec | 4 | s | 180 | Single condition |
+| 9ab7ab | 51 | s | 270 | Single condition |
+| 702d24 | 5 | m | [90, 270] | stims(8)==1→pos(90°), stims(8)==0→neg(270°) |
+| ecb43e | 55 | t | [270, 90, rand, rand] | **Inverted**: stims(8)==0→pos(270°), stims(8)==1→neg(90°) |
+| 0b5a2e | 31 | m | [90, 270] | stims(8)==1→pos(90°), stims(8)==0→neg(270°) |
+| 0b5a2ePlayBack | 31 | m | [90, 270] | stims(8)==1→pos(90°), stims(8)==0→neg(270°) |
+
+**Note**: 0b5a2e and 0b5a2ePlayBack share the same patient and betaChan=31. `B_ExtractNeuralData_PP_reref.m` previously had a stale value of betaChan=23 for 0b5a2e (fixed 2026-04-08); this variable was unused in the extraction pipeline so it had no effect on output data.
+
+### Verification results (2026-04-08)
+
+All beta reference channels show measured circular mean within 40° of target, **except** 0b5a2ePlayBack neg condition (ch31 circMean=0.1°, target=270°, 90° off). This is the playback condition where stimulation timing was replayed asynchronously from the live beta oscillation, so degraded phase targeting is expected.
+
+Non-reference EP channels show spatial phase offsets of up to ~180° from the beta reference channel due to cortical beta phase propagation gradients. This is expected physiology, not a labeling error.
+
+c91479 0/180 targets verified: all EP channels show pos condition closer to 0° and neg condition closer to 180° — no swap.
+
 ## Residual Diagnostics
 
 `betaStim_R_script.R` includes residual diagnostics for all five summary-level models (3a-3e):
