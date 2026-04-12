@@ -17,20 +17,76 @@ library('afex')
 library('report')
 library('effectsize')
 library('performance')
+library('car')
 library('officer')
 library('flextable')
 
 # log data prior to fitting?
 log_data = FALSE
 
+# Print HTML tab_model() summaries? Off by default (opens RStudio Viewer).
+showTabModel = FALSE
+
+# Run the phase-quality threshold sensitivity analysis?
+# Fits 10 lmer models (5a and 5a-gf2 at 5 thresholds each) — adds ~30-60s.
+# Opt-in for manuscript sensitivity tables; off for routine runs.
+runPhaseSensitivity = FALSE
+
+# ecb43e setToDeliverPhase value marking random-phase (non-targeted) trials.
+# These are kept for pure-dose plots but excluded from phase-dependent models.
+RANDOM_PHASE_MARKER <- "12345"
+excludeRandomPhase = TRUE
+
+# Phase-quality filters. Applied per-model inside each fit block so each
+# model can use the threshold appropriate for its sample size and random
+# effects structure. 5a-gf2 uses 0.2 (not 0.3) because 0.3 is singular in
+# the good-fit subset. 5a-gf uses per-burst scope to match its predictor.
+minPhaseVecLength_5a  = 0.3   # Model 5a channel r threshold
+minPhaseVecLength_gf2 = 0.2   # Model 5a-gf2 channel r threshold
+minBurstVecLength_gf  = 0     # Model 5a-gf per-burst r threshold
+minGoodBetaPerBurst   = 1     # minimum R²>0.7 stims per burst
+
+# Drop rows where `col` is NA or below `min_val`. If `min_val <= 0`,
+# returns df unchanged. Logs before/after counts when `label` is given.
+apply_min_filter <- function(df, col, min_val, label = NULL) {
+  if (is.null(min_val) || min_val <= 0) return(df)
+  keep <- !is.na(df[[col]]) & df[[col]] >= min_val
+  if (!is.null(label)) {
+    cat(sprintf("%s filter (%s >= %g): %d -> %d trials\n",
+                label, col, min_val, nrow(df), sum(keep)))
+  }
+  df[keep, ]
+}
+
+# Build a phase-curve plot title and filename stem from the filter
+# threshold. Kept in a single helper so title and filename never drift.
+# model_name like "Model 5a" / "Model 5a-gf2" becomes stem "model5a" /
+# "model5a_gf2" (spaces removed, hyphens → underscores).
+phase_curve_label <- function(model_name, r_thresh, n_obs) {
+  stem <- gsub("[^A-Za-z0-9_]", "",
+               gsub("-", "_",
+                    gsub(" ", "", tolower(model_name))))
+  if (r_thresh > 0) {
+    list(
+      title = sprintf("%s: Phase-Response Curve by Dose (phaseVecLength >= %.2f, N = %d)",
+                      model_name, r_thresh, n_obs),
+      fname = sprintf("betaStim_%s_phase_curve_r%02d", stem, round(100 * r_thresh)))
+  } else {
+    list(
+      title = sprintf("%s: Phase-Response Curve by Dose (no quality filter, N = %d)",
+                      model_name, n_obs),
+      fname = sprintf("betaStim_%s_phase_curve", stem))
+  }
+}
+
 savePlot = 1
-figWidth = 8 
-figHeight = 6 
+figWidth = 8
+figHeight = 6
 
 # ------------------------------------------------------------------------
 here()
 data <- read.table(here("data","output_table","betaStim_outputTable_50_new_100_thresh.csv"),header=TRUE,sep = ",",stringsAsFactors=F,
-                   colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor",'phaseDeliveryBinned45'="factor"))
+                   colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","phaseDeg"="numeric","setToDeliverPhase"="factor",'phaseDeliveryBinned45'="factor","phaseVecLength"="numeric","phaseCircStd"="numeric","phaseOmnibusP"="numeric"))
 
 summaryDataCount <- data %>% 
   group_by(sid,setToDeliverPhase,numStims,channel) %>% tally()
@@ -56,6 +112,20 @@ data <- subset(data,data$numStims!='Null')
 # rename for ease
 data$numStims <- revalue(data$numStims, c("Test 1"="[1,2]","Test 2"="[3,4]","Test 3"="[5,inf)"))
 #data$phaseClass <- revalue(data$phaseClass, c("90"=0,"270"=1))
+
+# --- Circular phase decomposition (Fisher 1993) ---
+# Convert channel-level circular mean phase (degrees) to sin/cos predictors.
+# Standard approach for including angular variables in linear models:
+#   sin(phase) captures the 90-270 axis (positive = toward 90 deg)
+#   cos(phase) captures the 0-180 axis (positive = toward 0 deg)
+data$phase_rad <- data$phaseDeg * pi / 180
+data$sin_phase <- sin(data$phase_rad)
+data$cos_phase <- cos(data$phase_rad)
+# Rounded phase as condition identifier for Model 5 grouping.
+# phaseDeg is constant within each (channel x condition) pair (MATLAB repmat),
+# so rounding is just float-safety. Keeps conditions with different measured
+# phases separate, unlike phaseClass which can merge two conditions into one bin.
+data$phaseDeg_round <- round(data$phaseDeg, 1)
 
 data$percentDiff = 0
 data$absDiff = 0
@@ -83,15 +153,13 @@ for (name in unique(data$sid)){
 sapply(data,class)
 #summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,channel), function(x) mean(x[,"percentDiff"]))
 
-summaryData = ddply(data, .(sid,phaseClass,numStims,channel,betaLabels), summarize, magnitude = median(magnitude))
+summaryData = ddply(data, .(sid,phaseClass,numStims,channel,betaLabels), summarize,
+                    magnitude = median(magnitude), sin_phase = first(sin_phase), cos_phase = first(cos_phase))
 
-summaryDataForMixed = ddply(data, .(sid,phaseClass,numStims,channel,betaLabels), summarize, magnitude = median(magnitude))
-
-
-summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,channel,betaLabels), summarize, percentDiff = median(percentDiff))
+summaryData = ddply(data[data$numStims != "Base",] , .(sid,phaseClass,numStims,channel,betaLabels), summarize,
+                    percentDiff = median(percentDiff), sin_phase = first(sin_phase), cos_phase = first(cos_phase))
 
 dataNoBaseline = data[data$numStims != "Base",]
-dataSubjOnly <- subset(data,data$sid=='0b5a2e')
 
 summaryDataNoPhase = ddply(data, .(sid,numStims,channel,betaLabels), summarize, magnitude = median(magnitude))
 summaryDataNoPhase = ddply(data[data$numStims != "Base",] , .(sid,numStims,channel,betaLabels), summarize, percentDiff = median(percentDiff))
@@ -165,8 +233,10 @@ figHeight = 4
 figWidth = 8
 
 if(savePlot){
-ggsave(paste0("betaStim_dose_phase.png"), units="in", width=figWidth, height=figHeight,dpi=600)
-ggsave(paste0("betaStim_dose_phase.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+  ggsave(here("output_plots","betaStim_dose_phase.png"), plot=p2,
+         units="in", width=figWidth, height=figHeight, dpi=600)
+  ggsave(here("output_plots","betaStim_dose_phase.eps"), plot=p2,
+         units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
 
 
@@ -202,10 +272,42 @@ figWidth = 8
 
 
 if(savePlot){
-  #ggsave(paste0("betaStim_dose.svg"), units="in", width=figWidth, height=figHeight,dpi=600)
-  ggsave(paste0("betaStim_dose.png"), units="in", width=figWidth, height=figHeight,dpi=600)
-  ggsave(paste0("betaStim_dose.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+  ggsave(here("output_plots","betaStim_dose.png"), plot=p2,
+         units="in", width=figWidth, height=figHeight, dpi=600)
+  ggsave(here("output_plots","betaStim_dose.eps"), plot=p2,
+         units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
+
+# ------------------------------------------------------------------------
+# Exclude ecb43e random-phase trials from phase-related analyses below.
+# The pure-dose plot (betaStim_dose.png) above includes them because it
+# doesn't use phase. Everything downstream that depends on phase (models
+# 3a-3e, 5a, 5a-gf, 5a-gf2, 6, residual diagnostics, ecb43e random has
+# phaseDeg = noisy circular mean → pollutes phase predictors).
+if (excludeRandomPhase) {
+  n_before <- nrow(data)
+  data <- data[!(data$sid == "ecb43e" &
+                 as.character(data$setToDeliverPhase) == RANDOM_PHASE_MARKER), ]
+  n_after <- nrow(data)
+  cat(sprintf("\nExcluded %d ecb43e random-phase trials from phase analyses (%d → %d rows)\n",
+      n_before - n_after, n_before, n_after))
+
+  # rebuild summary tables that include phaseClass / phaseDeg predictors so
+  # downstream models and plots reflect the filter (match original defs at
+  # lines 109-120)
+  summaryData <- ddply(data[data$numStims != "Base",],
+    .(sid, phaseClass, numStims, channel, betaLabels),
+    summarize, percentDiff = median(percentDiff),
+    sin_phase = first(sin_phase), cos_phase = first(cos_phase))
+  summaryDataHighStimsOnly <- ddply(data[data$numStims == "[5,inf)",],
+    .(sid, phaseClass, numStims, channel, orderedPhase45),
+    summarize, percentDiff = median(percentDiff))
+  dataNoBaseline <- data[data$numStims != "Base",]
+}
+
+# Phase-quality filtering is applied per-model below (see 5a and 5a-gf2
+# fit blocks), not globally, so each model can use the threshold that
+# fits its sample size and random-effects structure.
 
 # bar plot by hyper vs depol
 
@@ -221,9 +323,10 @@ figWidth = 8
 
 
 if(savePlot){
-  #ggsave(paste0("betaStim_dose_no_dots.svg"), units="in", width=figWidth, height=figHeight,dpi=600)
-  ggsave(paste0("betaStim_dose_no_dots.png"), units="in", width=figWidth, height=figHeight,dpi=600)
-  ggsave(paste0("betaStim_dose_no_dots.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+  ggsave(here("output_plots","betaStim_dose_no_dots.png"), plot=p3,
+         units="in", width=figWidth, height=figHeight, dpi=600)
+  ggsave(here("output_plots","betaStim_dose_no_dots.eps"), plot=p3,
+         units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
 
 
@@ -239,9 +342,10 @@ figWidth = 8
 
 
 if(savePlot){
-  #ggsave(paste0("betaStim_dose_binned45.svg"), units="in", width=figWidth, height=figHeight,dpi=600)
-  ggsave(paste0("betaStim_dose_binned45.png"), units="in", width=figWidth, height=figHeight,dpi=600)
-  ggsave(paste0("betaStim_dose_binned45.eps"), units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
+  ggsave(here("output_plots","betaStim_dose_binned45.png"), plot=p4,
+         units="in", width=figWidth, height=figHeight, dpi=600)
+  ggsave(here("output_plots","betaStim_dose_binned45.eps"), plot=p4,
+         units="in", width=figWidth, height=figHeight, dpi=600, device=cairo_ps)
 }
 
 p2 <- ggplot(summaryData, aes(x=numStims, y=percentDiff,fill=phaseClass)) + 
@@ -298,7 +402,7 @@ eta_squared(fit.intercepts.only, ci = 0.95)
 emm_orig_dose <- emmeans(fit.intercepts.only, pairwise ~ numStims | phaseClass)
 emm_orig_phase <- emmeans(fit.intercepts.only, pairwise ~ phaseClass | numStims)
 
-tab_model(fit.intercepts.only)
+if (showTabModel) tab_model(fit.intercepts.only)
 
 figHeight = 4
 figWidth = 8
@@ -347,7 +451,7 @@ pairs(emm_trial_dose)
 emm_trial_phase <- emmeans(fit.trial.level, ~ phaseClass | numStims)
 pairs(emm_trial_phase)
 
-tab_model(fit.trial.level)
+if (showTabModel) tab_model(fit.trial.level)
 
 figHeight = 4
 figWidth = 8
@@ -430,7 +534,7 @@ emm_3a_phase <- emmeans(fit.absDiff, ~ phaseClass | numStims)
 pairs(emm_3a_phase)
 confint(pairs(emm_3a_phase))
 
-tab_model(fit.absDiff)
+if (showTabModel) tab_model(fit.absDiff)
 
 # emmip plot: absDiff emmeans (already baseline-subtracted)
 emm_3a_df <- as.data.frame(emm_3a_dose)
@@ -522,7 +626,7 @@ emm_3b_phase <- emmeans(fit.modelD, ~ phaseClass | numStims)
 pairs(emm_3b_phase)
 confint(pairs(emm_3b_phase))
 
-tab_model(fit.modelD)
+if (showTabModel) tab_model(fit.modelD)
 
 # emmip plot: Model 3b contrasts vs baseline
 contr_3b_ci <- as.data.frame(confint(contr_3b_base))
@@ -622,7 +726,7 @@ emm_3c_phase <- emmeans(fit.ancova, ~ phaseClass | numStims)
 pairs(emm_3c_phase)
 confint(pairs(emm_3c_phase))
 
-tab_model(fit.ancova)
+if (showTabModel) tab_model(fit.ancova)
 
 # emmip plot: ANCOVA contrasts vs [1,2]
 contr_3c_ref <- contrast(emm_3c_dose, method = "trt.vs.ctrl", ref = 1)
@@ -880,6 +984,1029 @@ if(savePlot){
   dev.off()
 }
 
+# ========================================================================
+# Model 5: Prepare summary datasets with phaseDeg_round grouping
+# ========================================================================
+# Group by (sid, phaseDeg_round, numStims, channel) instead of phaseClass.
+# phaseDeg_round keeps conditions with different measured phases separate,
+# even when both would be binned to the same phaseClass (e.g., both < 180).
+# sin_phase/cos_phase are constant within each cell (same measured phase),
+# so first() is safe here.
+
+dataNB_m5 <- apply_min_filter(dataNoBaseline, "phaseVecLength",
+  minPhaseVecLength_5a, label = "Model 5a")
+
+summaryNB_m5 <- ddply(dataNB_m5, .(sid, phaseDeg_round, numStims, channel),
+  summarize, magnitude = median(magnitude),
+  sin_phase = first(sin_phase), cos_phase = first(cos_phase),
+  betaLabels = first(betaLabels))
+
+# baseline covariate: one median per channel, pooled across conditions (unchanged)
+summaryNB_m5 <- merge(summaryNB_m5, basePerChan, by = c("sid", "channel"))
+summaryNB_m5$baselineMag_c <- summaryNB_m5$baselineMag - mean(summaryNB_m5$baselineMag)
+summaryNB_m5$doseNum <- as.numeric(factor(summaryNB_m5$numStims,
+  levels = c("[1,2]","[3,4]","[5,inf)"))) - 1
+
+# ordinal dose coding
+summaryNB_m5$numStims_ord <- ordered(summaryNB_m5$numStims,
+  levels = c("[1,2]", "[3,4]", "[5,inf)"))
+summaryNB_m5$dose_linpoly <- poly_lin[as.numeric(summaryNB_m5$numStims_ord)]
+
+cat(sprintf("\nModel 5 summary data: %d obs, %d subjects, %d channels\n",
+    nrow(summaryNB_m5), length(unique(summaryNB_m5$sid)),
+    length(unique(summaryNB_m5$channel))))
+
+# ========================================================================
+# Model 5: Continuous circular phase (sin/cos decomposition) — ANCOVA
+# ========================================================================
+# Replaces binary phaseClass (90/270) with sin(phase) and cos(phase), the
+# standard approach for including angular predictors in linear models
+# (Fisher 1993, "Statistical Analysis of Circular Data").
+#
+# Why sin/cos decomposition:
+#   phaseClass bins all phases 0-180 as "90" and 181-360 as "270", discarding
+#   the continuous phase information. Channels with delivered phases of 85 and
+#   175 degrees are both labelled "90" despite being ~90 degrees apart.
+#   The sin/cos decomposition preserves the full 360 degrees of phase:
+#     sin(phase): captures the 90-270 deg axis (positive = toward 90)
+#     cos(phase): captures the 0-180 deg axis (positive = toward 0)
+#   A joint test of sin + cos = omnibus test for any phase effect direction.
+#
+# Why ANCOVA (baselineMag_c as covariate):
+#   Baseline CEP magnitude varies ~10-fold across channels (~50-600+ uV) due
+#   to electrode proximity to cortical generators. Including baselineMag_c
+#   (grand-mean-centered baseline median per channel) absorbs this between-
+#   channel variance (channel random SD drops from ~153 to ~10 uV in existing
+#   models). Baseline trials are excluded from the modeled data — they serve
+#   only as the covariate source — avoiding the confound that arises when
+#   baseline is a dose level (baseline trials inherit phaseClass/sin_phase
+#   labels even though no phase-targeted stimulation occurred).
+#   Standard for pre/post designs (Senn 2006; Van Breukelen 2006).
+#
+# Hypothesis: interaction between delivered phase and conditioning dose —
+# the phase effect on CEP magnitude depends on number of conditioning stimuli.
+#
+# betaLabels (1 = beta reference channel, 0 = EP channel) included as a
+# fixed effect to control for systematic magnitude differences at the beta
+# recording electrode.
+# ========================================================================
+
+# --- Model 5a: Ordinal dose x sin/cos + betaLabels (ANCOVA) ---
+# Primary model. Uses polynomial contrasts (.L linear, .Q quadratic) for dose.
+# REML for parameter estimation; ML comparisons via explicit REML=FALSE fits.
+cat("\n=== Model 5a: Continuous phase (sin/cos) + ordinal dose + ANCOVA ===\n")
+
+fit.sincos.ordinal = lmerTest::lmer(
+  magnitude ~ numStims_ord * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+  (1 + dose_linpoly | sid) + (1 | channel),
+  data = summaryNB_m5,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("Singular:", isSingular(fit.sincos.ordinal), "\n")
+summary(fit.sincos.ordinal)
+cat("\nType III ANOVA (Satterthwaite):\n")
+print(anova(fit.sincos.ordinal))
+VarCorr(fit.sincos.ordinal)
+report(fit.sincos.ordinal)
+model_performance(fit.sincos.ordinal)
+
+# --- Joint hypothesis tests ---
+# (1) Omnibus phase main effect: are sin_phase and cos_phase jointly zero?
+#     With polynomial contrasts, main effects represent the average phase
+#     effect across all dose levels.
+#
+# (2) Phase x dose interaction: do the dose:sin and dose:cos interactions
+#     jointly contribute?
+#
+# Two approaches:
+#   (a) LRT (likelihood ratio test): compare nested ML-fitted models.
+#       Preferred for small samples — chi-squared approximation is more
+#       reliable than the Wald test from linearHypothesis.
+#   (b) Wald test (linearHypothesis): complementary check using the
+#       coefficient covariance matrix. Can be liberal with few clusters
+#       (6 subjects), so we report alongside LRT rather than in isolation.
+
+# -- (a) LRT comparisons (REML=FALSE required for differing fixed effects) --
+fit.sincos.ordinal.ml = update(fit.sincos.ordinal, REML = FALSE)
+
+# Reduced: no phase terms at all
+fit.sincos.nophase.ml = lmerTest::lmer(
+  magnitude ~ numStims_ord + betaLabels + baselineMag_c +
+  (1 + dose_linpoly | sid) + (1 | channel),
+  data = summaryNB_m5, REML = FALSE,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("\nLRT: full model vs no-phase model (omnibus phase test, 6 df):\n")
+print(anova(fit.sincos.nophase.ml, fit.sincos.ordinal.ml))
+
+# Reduced: phase main effects only, no interaction
+fit.sincos.noint.ml = lmerTest::lmer(
+  magnitude ~ numStims_ord + sin_phase + cos_phase + betaLabels + baselineMag_c +
+  (1 + dose_linpoly | sid) + (1 | channel),
+  data = summaryNB_m5, REML = FALSE,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("\nLRT: full model vs main-effects-only (dose x phase interaction, 4 df):\n")
+print(anova(fit.sincos.noint.ml, fit.sincos.ordinal.ml))
+
+# Reduced: dose + interaction, no phase main effects
+# (tests whether phase main effects add beyond the interaction)
+cat("\nLRT: no-phase vs main-effects-only (phase main effect, 2 df):\n")
+print(anova(fit.sincos.nophase.ml, fit.sincos.noint.ml))
+
+# -- (b) Wald tests (linearHypothesis) — complementary to LRT --
+# Average phase modulation across doses (2-df joint test of main effects).
+# Note: Wald chi-squared can be liberal with few clusters; interpret alongside LRT.
+cat("\nWald test: average phase modulation (sin_phase = cos_phase = 0):\n")
+print(car::linearHypothesis(fit.sincos.ordinal,
+  c("sin_phase = 0", "cos_phase = 0")))
+
+# Phase x dose interaction (4-df joint test of all interaction terms)
+cat("\nWald test: phase x dose interaction:\n")
+print(car::linearHypothesis(fit.sincos.ordinal,
+  c("numStims_ord.L:sin_phase = 0", "numStims_ord.Q:sin_phase = 0",
+    "numStims_ord.L:cos_phase = 0", "numStims_ord.Q:cos_phase = 0")))
+
+# --- emmeans at key phase angles ---
+# For a single phase angle, at= gives one sin/cos value each — no factorial issue.
+
+# --- emmeans at key phase angles ---
+# All pairwise dose contrasts use Tukey adjustment (default for pairs()).
+# Phase contrasts (90 vs 270) are single comparisons — no adjustment needed.
+# Dose contrasts at phase = 90 deg (depolarizing: sin=1, cos=0)
+cat("\n--- emmeans: dose contrasts at phase = 90 deg (Tukey-adjusted) ---\n")
+emm_5a_90 <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
+  at = list(sin_phase = 1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+print(emm_5a_90)
+cat("Pairwise dose contrasts at 90 deg:\n")
+print(confint(pairs(emm_5a_90)))
+
+# Dose contrasts at phase = 270 deg (hyperpolarizing: sin=-1, cos=0)
+cat("\n--- emmeans: dose contrasts at phase = 270 deg (Tukey-adjusted) ---\n")
+emm_5a_270 <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
+  at = list(sin_phase = -1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+print(emm_5a_270)
+cat("Pairwise dose contrasts at 270 deg:\n")
+print(confint(pairs(emm_5a_270)))
+
+# Phase contrast (90 vs 270) at each dose level — cos=0 for both, no factorial issue
+cat("\n--- emmeans: phase 90 vs 270 at each dose ---\n")
+emm_5a_phase <- emmeans(fit.sincos.ordinal, ~ numStims_ord * sin_phase,
+  at = list(sin_phase = c(1, -1), cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+print(contrast(emm_5a_phase, method = "pairwise", by = "numStims_ord"))
+
+# --- Phase-response curve via emmeans (every 45 deg) ---
+phase_vals <- seq(0, 315, by = 45)
+emm_curve <- lapply(phase_vals, function(ph) {
+  em <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
+    at = list(sin_phase = sin(ph * pi / 180), cos_phase = cos(ph * pi / 180),
+              betaLabels = "0", baselineMag_c = 0))
+  df <- as.data.frame(em)
+  df$phase_deg <- ph
+  df
+})
+emm_curve_df <- do.call(rbind, emm_curve)
+
+lbl_5a <- phase_curve_label("Model 5a", minPhaseVecLength_5a, nrow(summaryNB_m5))
+p_5a <- ggplot(emm_curve_df, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+  theme_light(base_size = 14) +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) +
+  geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord), alpha = 0.15, color = NA) +
+  labs(x = "Delivered Phase (degrees)",
+       y = expression(paste("Predicted Magnitude (", mu, "V)")),
+       color = "Dose", fill = "Dose",
+       title = lbl_5a$title,
+       subtitle = "emmeans ± 95% CI; baselineMag_c = 0, betaLabels = 0") +
+  scale_x_continuous(breaks = seq(0, 315, by = 45))
+p_5a
+
+if(savePlot){
+  ggsave(here("output_plots", paste0(lbl_5a$fname, ".png")), plot = p_5a,
+         units = "in", width = 7, height = 4.5, dpi = 600)
+  ggsave(here("output_plots", paste0(lbl_5a$fname, ".eps")), plot = p_5a,
+         units = "in", width = 7, height = 4.5, dpi = 600, device = cairo_ps)
+}
+
+# --- Total-variance effect sizes ---
+# Standard (conditional) Cohen's d uses residual SD only. Marginal (unconditional)
+# d uses total variance = sigma^2_subject + sigma^2_channel + sigma^2_residual.
+# This answers: "how large is the effect relative to ALL variability in CEP
+# magnitude across subjects, channels, and residual?"
+# More conservative, more generalizable to new subjects/channels.
+# Reference: Westfall, Kenny & Judd (2014), JEPG.
+
+# For models with random slopes, the marginal variance depends on the
+# predictor value: Var(Y|x) = Var_int + 2*x*Cov + x^2*Var_slope + ...
+# Average over the observed dose distribution: E[x]=0 (polynomial centered),
+# E[x^2] = mean(contr.poly(3)[,1]^2) = 1/3. So covariance term drops out
+# and slope variance is weighted by 1/3, not 1.
+vc_5a <- VarCorr(fit.sincos.ordinal)
+var_sid_int <- attr(vc_5a$sid, "stddev")["(Intercept)"]^2
+var_sid_slope <- attr(vc_5a$sid, "stddev")["dose_linpoly"]^2
+var_channel <- attr(vc_5a$channel, "stddev")["(Intercept)"]^2
+var_resid <- sigma(fit.sincos.ordinal)^2
+ex2 <- mean(contr.poly(3)[,1]^2)  # = 1/3 for 3 dose levels
+total_sd_5a <- sqrt(var_sid_int + ex2 * var_sid_slope + var_channel + var_resid)
+resid_sd_5a <- sigma(fit.sincos.ordinal)
+
+cat(sprintf("\nVariance components: total SD = %.1f uV, residual SD = %.1f uV\n",
+    total_sd_5a, resid_sd_5a))
+
+# Effect sizes for dose contrasts at phase=90 and phase=270
+compute_effect_sizes <- function(emm_obj, total_sd, resid_sd, label) {
+  contr <- pairs(emm_obj)
+  contr_df <- as.data.frame(confint(contr))
+  contr_df$d_total <- contr_df$estimate / total_sd
+  contr_df$d_total_lower <- contr_df$lower.CL / total_sd
+  contr_df$d_total_upper <- contr_df$upper.CL / total_sd
+  contr_df$d_conditional <- contr_df$estimate / resid_sd
+  cat(sprintf("\n--- Effect sizes: %s ---\n", label))
+  cat(sprintf("d_total denominator (total SD): %.1f uV\n", total_sd))
+  cat(sprintf("d_conditional denominator (residual SD): %.1f uV\n", resid_sd))
+  print(contr_df[, c("contrast", "estimate", "d_total", "d_total_lower", "d_total_upper", "d_conditional")])
+  return(contr_df)
+}
+
+es_90 <- compute_effect_sizes(emm_5a_90, total_sd_5a, resid_sd_5a, "dose at phase=90")
+es_270 <- compute_effect_sizes(emm_5a_270, total_sd_5a, resid_sd_5a, "dose at phase=270")
+
+# --- Model 5b: Numeric dose x sin/cos (sensitivity) ---
+cat("\n=== Model 5b: Continuous phase (sin/cos) + numeric dose + ANCOVA ===\n")
+
+fit.sincos.numeric = lmerTest::lmer(
+  magnitude ~ doseNum * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+  (1 + doseNum | sid) + (1 | channel),
+  data = summaryNB_m5,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("Singular:", isSingular(fit.sincos.numeric), "\n")
+summary(fit.sincos.numeric)
+print(anova(fit.sincos.numeric))
+
+# --- Model 5c: Categorical dose x sin/cos (sensitivity) ---
+cat("\n=== Model 5c: Continuous phase (sin/cos) + categorical dose + ANCOVA ===\n")
+
+fit.sincos.categ = lmerTest::lmer(
+  magnitude ~ numStims * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+  (1 + doseNum | sid) + (1 | channel),
+  data = summaryNB_m5,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("Singular:", isSingular(fit.sincos.categ), "\n")
+summary(fit.sincos.categ)
+print(anova(fit.sincos.categ))
+
+# --- Model 5 comparison ---
+cat("\n=== Model 5 variants comparison ===\n")
+cat("Model 5a (ordinal):     AIC=", round(AIC(fit.sincos.ordinal),1), " BIC=", round(BIC(fit.sincos.ordinal),1), " singular=", isSingular(fit.sincos.ordinal), "\n")
+cat("Model 5b (numeric):     AIC=", round(AIC(fit.sincos.numeric),1), " BIC=", round(BIC(fit.sincos.numeric),1), " singular=", isSingular(fit.sincos.numeric), "\n")
+cat("Model 5c (categorical): AIC=", round(AIC(fit.sincos.categ),1), " BIC=", round(BIC(fit.sincos.categ),1), " singular=", isSingular(fit.sincos.categ), "\n")
+
+# ========================================================================
+# Model 6: Continuous dose (natural spline) x sin/cos phase — EXPLORATORY
+# ========================================================================
+# CAUTION: Models 6 and 6-gf are EXPLORATORY only. Each unique stim count
+# becomes its own summary cell, producing many more observations (682-1280)
+# than the binned models (96-153). With only 7 subjects, a random dose slope
+# per subject is singular — the model cannot account for between-subject
+# heterogeneity in dose-response. Without random slopes, within-subject
+# dose observations are treated as if independent, making p-values and CIs
+# anti-conservative (too liberal). Model 5a (binned dose, with proper random
+# slopes) is the primary inferential model. Model 6 is retained for its
+# descriptive value in visualizing the continuous dose-response shape.
+#
+# Replaces binned dose ([1,2], [3,4], [5,inf)) with the actual number of
+# conditioning stims delivered per burst (nCondStims = 1, 2, 3, ...).
+# Uses natural splines (ns) to capture potential nonlinear dose-response
+# without imposing a parametric form.
+#
+# nCondStims is the TOTAL number of conditioning stims in the burst, not
+# the number with good beta fits. It reflects the experimental manipulation
+# (how much conditioning was delivered), regardless of measurement quality.
+#
+# nCondStims is sourced from *_burst_phase_precision.csv files, which have
+# the raw burst stim count from bursts(4, burstId) in the stim table.
+#
+# The merge uses (probeSample, channel) as the key: probeSample is the TDT
+# sample number uniquely identifying each probe event, and channel is the
+# encoded channel ID (subjectNum*100 + chan). Together they give a unique
+# (probe, channel) pair matching between the main data and precision CSVs.
+cat("\n=== Model 6 [EXPLORATORY]: Continuous dose (spline) x sin/cos phase ===\n")
+cat("NOTE: p-values are anti-conservative — no random dose slopes (singular at n=7 subjects).\n")
+
+precision_files_m6 <- Sys.glob(here("data", "output_table", "*_burst_phase_precision.csv"))
+if (length(precision_files_m6) > 0) {
+  precision_combined <- do.call(rbind, lapply(precision_files_m6, read.csv))
+}
+
+if (length(precision_files_m6) > 0) {
+  library(splines)
+
+  precision_dose <- precision_combined[, c("probeSample", "channelEncoded", "nCondStims")]
+  precision_dose$channelEncoded <- as.factor(precision_dose$channelEncoded)
+
+  data_m6 <- merge(data, precision_dose,
+    by.x = c("probeSample", "channel"),
+    by.y = c("probeSample", "channelEncoded"),
+    all.x = TRUE)
+
+  # exclude baselines (nCondStims=0) and trials with no precision match
+  data_m6_NB <- data_m6[!is.na(data_m6$nCondStims) & data_m6$nCondStims > 0, ]
+
+  cat(sprintf("Merged nCondStims: %d non-baseline trials, range [%d, %d]\n",
+      nrow(data_m6_NB), min(data_m6_NB$nCondStims), max(data_m6_NB$nCondStims)))
+  cat("Distribution of nCondStims:\n")
+  print(table(data_m6_NB$nCondStims))
+
+  # summary: one median per (sid, channel, phaseDeg_round, nCondStims)
+  # Using phaseDeg_round to keep conditions separate (same as Model 5).
+  # Each unique stim count gets its own cell — more granular than binned dose.
+  data_m6_NB$phaseDeg_round <- round(data_m6_NB$phaseDeg, 1)
+  summaryNB_m6 <- ddply(data_m6_NB, .(sid, channel, phaseDeg_round, nCondStims),
+    summarize, magnitude = median(magnitude),
+    sin_phase = first(sin_phase), cos_phase = first(cos_phase),
+    betaLabels = first(betaLabels))
+
+  # baseline covariate (from unfiltered data, same as Model 5)
+  summaryNB_m6 <- merge(summaryNB_m6, basePerChan, by = c("sid", "channel"))
+  summaryNB_m6$baselineMag_c <- summaryNB_m6$baselineMag - mean(summaryNB_m6$baselineMag)
+
+  cat(sprintf("Model 6 summary: %d obs, %d subjects, %d channels, nCondStims range [%d, %d]\n",
+      nrow(summaryNB_m6), length(unique(summaryNB_m6$sid)),
+      length(unique(summaryNB_m6$channel)),
+      min(summaryNB_m6$nCondStims), max(summaryNB_m6$nCondStims)))
+
+  # Natural spline with 3 df for dose — captures nonlinearity without overfitting.
+  # Boundary knots at min/max of observed data, internal knots at quantiles.
+  # Interaction with sin/cos tests whether the dose-response shape differs by phase.
+  fit.spline = lmerTest::lmer(
+    magnitude ~ ns(nCondStims, df = 3) * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+    (1 + nCondStims | sid) + (1 | channel),
+    data = summaryNB_m6,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("Singular:", isSingular(fit.spline), "\n")
+  print(summary(fit.spline))
+  cat("\nType III ANOVA (Satterthwaite):\n")
+  print(anova(fit.spline))
+
+  # --- LRT: phase effect ---
+  fit.spline.ml <- update(fit.spline, REML = FALSE)
+  fit.spline.nophase.ml <- lmerTest::lmer(
+    magnitude ~ ns(nCondStims, df = 3) + betaLabels + baselineMag_c +
+    (1 + nCondStims | sid) + (1 | channel),
+    data = summaryNB_m6, REML = FALSE,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("\nLRT: full model vs no-phase (omnibus phase test):\n")
+  print(anova(fit.spline.nophase.ml, fit.spline.ml))
+
+  # --- Wald test: average phase modulation ---
+  cat("\nWald test: average phase modulation:\n")
+  print(car::linearHypothesis(fit.spline, c("sin_phase = 0", "cos_phase = 0")))
+
+  # --- Dose-response curve via emmeans ---
+  # emmeans handles ns() correctly — it reconstructs the spline basis at new
+  # values using the same knots from the original model fit.
+  # Evaluate at 90 deg (sin=1, cos=0) and 270 deg (sin=-1, cos=0).
+  # Limit dose range to where data is dense (most data at nCondStims <= 20).
+  max_dose_plot <- min(20, max(summaryNB_m6$nCondStims))
+  spline_at <- list(
+    nCondStims = seq(1, max_dose_plot, by = 0.5),
+    sin_phase = c(1, -1),   # 90 deg and 270 deg
+    cos_phase = 0,           # cos=0 for both
+    betaLabels = "0",
+    baselineMag_c = 0)
+
+  emm_spline <- emmeans(fit.spline, ~ nCondStims * sin_phase, at = spline_at)
+  emm_spline_df <- as.data.frame(emm_spline)
+  emm_spline_df$phase_label <- ifelse(emm_spline_df$sin_phase > 0, "90 deg", "270 deg")
+
+  p_m6 <- ggplot(emm_spline_df, aes(x = nCondStims, y = emmean, color = phase_label)) +
+    theme_light(base_size = 14) +
+    geom_line(linewidth = 1) +
+    geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = phase_label), alpha = 0.15, color = NA) +
+    geom_rug(data = summaryNB_m6[summaryNB_m6$nCondStims <= max_dose_plot, ],
+             aes(x = nCondStims, y = NULL), inherit.aes = FALSE, sides = "b", alpha = 0.3) +
+    labs(x = "Number of Conditioning Stimuli",
+         y = expression(paste("Predicted Magnitude (", mu, "V)")),
+         color = "Phase", fill = "Phase",
+         title = "Model 6 [EXPLORATORY]: Spline Dose-Response at 90 vs 270 deg") +
+    scale_x_continuous(breaks = seq(1, max_dose_plot, by = 2))
+  p_m6
+
+  if(savePlot){
+    ggsave(here("output_plots","betaStim_model6_spline_dose_response.png"), plot = p_m6,
+           units = "in", width = 7, height = 4.5, dpi = 600)
+    ggsave(here("output_plots","betaStim_model6_spline_dose_response.eps"), plot = p_m6,
+           units = "in", width = 7, height = 4.5, dpi = 600, device = cairo_ps)
+  }
+
+  cat(sprintf("\nModel 6 AIC=%.1f BIC=%.1f\n", AIC(fit.spline), BIC(fit.spline)))
+
+  # ========================================================================
+  # Model 6-gf: Good-fit version — continuous spline dose x per-burst phase
+  # ========================================================================
+  # Restricts to trials where nGoodBeta > 0 on that channel (same filter as
+  # Model 5a-gf). Uses per-burst burstCircMean for phase (not channel-level
+  # average). Aggregates by (sid, channel, nCondStims) with circular mean
+  # of per-burst sin/cos. This avoids the inflated df of the global Model 6
+  # (1280 obs with many 1-2 trial cells).
+  cat("\n=== Model 6-gf [EXPLORATORY]: Good-fit spline dose x per-burst phase ===\n")
+  cat("NOTE: p-values are anti-conservative — no random dose slopes (singular at n=7 subjects).\n")
+
+  # merge nCondStims + nGoodBeta + burstCircMean together
+  precision_gf_m6 <- precision_combined[, c("probeSample", "channelEncoded",
+    "nCondStims", "nGoodBeta", "burstCircMean")]
+  precision_gf_m6$channelEncoded <- as.factor(precision_gf_m6$channelEncoded)
+
+  data_m6_gf <- merge(data, precision_gf_m6,
+    by.x = c("probeSample", "channel"),
+    by.y = c("probeSample", "channelEncoded"),
+    all.x = TRUE)
+
+  # filter: non-baseline, good beta fit, valid nCondStims
+  data_m6_gf <- data_m6_gf[!is.na(data_m6_gf$nGoodBeta) & data_m6_gf$nGoodBeta > 0 &
+    !is.na(data_m6_gf$nCondStims) & data_m6_gf$nCondStims > 0 &
+    data_m6_gf$numStims != "Base", ]
+
+  # per-burst sin/cos from burstCircMean (actual delivered phase per burst)
+  data_m6_gf$sin_phase_burst <- sin(data_m6_gf$burstCircMean * pi / 180)
+  data_m6_gf$cos_phase_burst <- cos(data_m6_gf$burstCircMean * pi / 180)
+
+  cat(sprintf("Good-fit trials: %d, nCondStims range [%d, %d]\n",
+      nrow(data_m6_gf), min(data_m6_gf$nCondStims), max(data_m6_gf$nCondStims)))
+
+  # summary: one median per (sid, channel, nCondStims)
+  # Phase via circular mean of per-burst values: mean(sin), mean(cos)
+  summaryNB_m6_gf <- ddply(data_m6_gf, .(sid, channel, nCondStims),
+    summarize, magnitude = median(magnitude),
+    sin_phase = mean(sin_phase_burst), cos_phase = mean(cos_phase_burst),
+    betaLabels = first(betaLabels))
+
+  # baseline covariate (unfiltered, same as other models)
+  summaryNB_m6_gf <- merge(summaryNB_m6_gf, basePerChan, by = c("sid", "channel"))
+  summaryNB_m6_gf$baselineMag_c <- summaryNB_m6_gf$baselineMag - mean(summaryNB_m6_gf$baselineMag)
+
+  cat(sprintf("Model 6-gf summary: %d obs, %d subjects, %d channels, nCondStims range [%d, %d]\n",
+      nrow(summaryNB_m6_gf), length(unique(summaryNB_m6_gf$sid)),
+      length(unique(summaryNB_m6_gf$channel)),
+      min(summaryNB_m6_gf$nCondStims), max(summaryNB_m6_gf$nCondStims)))
+
+  # fit: intercepts only (same rationale as Model 5a-gf — random slope
+  # variance estimated at zero with filtered data)
+  fit.spline.gf = lmerTest::lmer(
+    magnitude ~ ns(nCondStims, df = 3) * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+    (1 | sid) + (1 | channel),
+    data = summaryNB_m6_gf,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("Singular:", isSingular(fit.spline.gf), "\n")
+  print(summary(fit.spline.gf))
+  cat("\nType III ANOVA (Satterthwaite):\n")
+  print(anova(fit.spline.gf))
+
+  # LRT: phase effect
+  fit.spline.gf.ml <- update(fit.spline.gf, REML = FALSE)
+  fit.spline.gf.nophase.ml <- lmerTest::lmer(
+    magnitude ~ ns(nCondStims, df = 3) + betaLabels + baselineMag_c +
+    (1 | sid) + (1 | channel),
+    data = summaryNB_m6_gf, REML = FALSE,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("\nLRT (6-gf): full vs no-phase:\n")
+  print(anova(fit.spline.gf.nophase.ml, fit.spline.gf.ml))
+
+  # Wald: average phase modulation
+  cat("\nWald test (6-gf): average phase modulation:\n")
+  print(car::linearHypothesis(fit.spline.gf, c("sin_phase = 0", "cos_phase = 0")))
+
+  # emmeans dose-response curve at 90 vs 270
+  max_dose_gf <- min(20, max(summaryNB_m6_gf$nCondStims))
+  spline_at_gf <- list(
+    nCondStims = seq(1, max_dose_gf, by = 0.5),
+    sin_phase = c(1, -1),
+    cos_phase = 0,
+    betaLabels = "0",
+    baselineMag_c = 0)
+
+  emm_spline_gf <- emmeans(fit.spline.gf, ~ nCondStims * sin_phase, at = spline_at_gf)
+  emm_spline_gf_df <- as.data.frame(emm_spline_gf)
+  emm_spline_gf_df$phase_label <- ifelse(emm_spline_gf_df$sin_phase > 0, "90 deg", "270 deg")
+
+  p_m6_gf <- ggplot(emm_spline_gf_df, aes(x = nCondStims, y = emmean, color = phase_label)) +
+    theme_light(base_size = 14) +
+    geom_line(linewidth = 1) +
+    geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = phase_label), alpha = 0.15, color = NA) +
+    geom_rug(data = summaryNB_m6_gf[summaryNB_m6_gf$nCondStims <= max_dose_gf, ],
+             aes(x = nCondStims, y = NULL), inherit.aes = FALSE, sides = "b", alpha = 0.3) +
+    labs(x = "Number of Conditioning Stimuli",
+         y = expression(paste("Predicted Magnitude (", mu, "V)")),
+         color = "Phase", fill = "Phase",
+         title = "Model 6-gf [EXPLORATORY]: Spline Dose-Response (good fits, per-burst phase)") +
+    scale_x_continuous(breaks = seq(1, max_dose_gf, by = 2))
+  p_m6_gf
+
+  if(savePlot){
+    ggsave(here("output_plots","betaStim_model6_gf_spline_dose_response.png"), plot = p_m6_gf,
+           units = "in", width = 7, height = 4.5, dpi = 600)
+    ggsave(here("output_plots","betaStim_model6_gf_spline_dose_response.eps"), plot = p_m6_gf,
+           units = "in", width = 7, height = 4.5, dpi = 600, device = cairo_ps)
+  }
+
+  cat(sprintf("\nModel 6-gf AIC=%.1f BIC=%.1f\n", AIC(fit.spline.gf), BIC(fit.spline.gf)))
+  cat(sprintf("Comparison: Model 6 AIC=%.1f (1280 obs) vs 6-gf AIC=%.1f (%d obs)\n",
+      AIC(fit.spline), AIC(fit.spline.gf), nrow(summaryNB_m6_gf)))
+
+} else {
+  cat("No burst_phase_precision CSVs found — skipping Model 6.\n")
+}
+
+# ========================================================================
+# Model 5a-gf: Secondary analysis — restrict to good beta fits
+# ========================================================================
+# Filter trials to those where at least one conditioning stim in the burst
+# had a good beta-band sinusoidal fit (R^2 > 0.7, frequency 12-20 Hz) on
+# ANY channel. If that yields too few subjects, fall back to beta reference
+# channel data only (dropping betaLabels since all data is from one channel
+# type per subject).
+cat("\n=== Secondary analysis: good beta fit restriction ===\n")
+
+if (exists("precision_combined")) {
+  # precision_combined already loaded before Model 6
+
+  # --- Merge per-channel nGoodBeta AND burstCircMean ---
+  # burstCircMean: circular mean phase (degrees) from the specific conditioning
+  # burst preceding each probe, computed by compute_burst_phase_precision.m.
+  # Includes ONLY conditioning stims that passed R^2 > 0.7 AND frequency 12-20 Hz
+  # (beta band). If a burst of 5 stims had 1 good fit, burstCircMean = that
+  # single stim's phase. nGoodBeta counts how many stims passed the threshold.
+  #
+  # Dose labels ([1,2], [3,4], [5,inf)) reflect TOTAL conditioning stims
+  # delivered in the burst, not the number with good fits. Dose = experimental
+  # manipulation; good-fit filter = measurement quality. These are independent.
+  precision_sub <- precision_combined[, c("probeSample", "channelEncoded",
+    "nGoodBeta", "burstCircMean", "burstVecLength")]
+  precision_sub$channelEncoded <- as.factor(precision_sub$channelEncoded)
+
+  data_merged <- merge(data, precision_sub,
+    by.x = c("probeSample", "channel"),
+    by.y = c("probeSample", "channelEncoded"),
+    all.x = TRUE)
+
+  # Trial quality filters: minimum good-fit stims per burst and optional
+  # per-burst vector length concentration
+  dataGoodFit <- apply_min_filter(data_merged, "nGoodBeta", minGoodBetaPerBurst)
+  dataGoodFit <- apply_min_filter(dataGoodFit, "burstVecLength",
+    minBurstVecLength_gf, label = "Per-burst")
+  dataGoodFit_NB <- dataGoodFit[dataGoodFit$numStims != "Base", ]
+  nSubj_gf <- length(unique(dataGoodFit_NB$sid))
+
+  cat(sprintf("Per-channel good-fit filter (nGoodBeta >= %d): %d non-baseline trials from %d subjects\n",
+      minGoodBetaPerBurst, nrow(dataGoodFit_NB), nSubj_gf))
+
+  # --- Fallback: if too few subjects, use beta reference channel only ---
+  use_beta_only <- nSubj_gf < 2
+  if (use_beta_only) {
+    cat("Too few subjects with per-channel good fits; restricting to beta reference channel.\n")
+    # Beta reference channels are marked by betaLabels == "1" in the CSV
+    beta_chans <- unique(as.character(data$channel[data$betaLabels == "1"]))
+    dataGoodFit <- data_merged[data_merged$channel %in% beta_chans, ]
+    dataGoodFit$nGoodBeta <- NULL
+    dataGoodFit$burstCircMean <- NULL
+
+    precision_beta <- precision_combined[precision_combined$channelEncoded %in% as.numeric(beta_chans), ]
+    precision_beta_probe <- precision_beta[, c("probeSample", "nGoodBeta",
+      "burstCircMean", "burstVecLength")]
+    names(precision_beta_probe)[2:4] <- c("nGoodBeta_beta", "burstCircMean_beta",
+      "burstVecLength_beta")
+    dataGoodFit <- merge(dataGoodFit, precision_beta_probe, by = "probeSample", all.x = TRUE)
+    dataGoodFit <- dataGoodFit[!is.na(dataGoodFit$nGoodBeta_beta) &
+      dataGoodFit$nGoodBeta_beta >= minGoodBetaPerBurst, ]
+    dataGoodFit$burstCircMean <- dataGoodFit$burstCircMean_beta
+    dataGoodFit$burstVecLength <- dataGoodFit$burstVecLength_beta
+    if (minBurstVecLength_gf > 0) {
+      dataGoodFit <- dataGoodFit[!is.na(dataGoodFit$burstVecLength) &
+        dataGoodFit$burstVecLength >= minBurstVecLength_gf, ]
+    }
+    dataGoodFit_NB <- dataGoodFit[dataGoodFit$numStims != "Base", ]
+    nSubj_gf <- length(unique(dataGoodFit_NB$sid))
+    cat(sprintf("Beta-channel-only good-fit filter: %d non-baseline trials from %d subjects\n",
+        nrow(dataGoodFit_NB), nSubj_gf))
+  }
+
+  cat(sprintf("Good-fit trials: %d of %d non-baseline trials (%.0f%%)\n",
+      nrow(dataGoodFit_NB), nrow(dataNoBaseline),
+      100 * nrow(dataGoodFit_NB) / nrow(dataNoBaseline)))
+
+  # --- Compute per-trial sin/cos from burst-specific measured phase ---
+  # burstCircMean is the actual delivered phase for each specific burst,
+  # computed from only the good-fit conditioning stims (R^2 > 0.7, 12-20 Hz).
+  # This replaces the channel-level average phase (phaseDeg) for the good-fit
+  # analysis, giving a more precise per-trial phase estimate.
+  dataGoodFit_NB$sin_phase_burst <- sin(dataGoodFit_NB$burstCircMean * pi / 180)
+  dataGoodFit_NB$cos_phase_burst <- cos(dataGoodFit_NB$burstCircMean * pi / 180)
+
+  # --- Aggregate to summary level ---
+  # Group by (sid, numStims, channel). No phaseClass or phaseDeg_round needed
+  # because the per-burst phase varies trial-to-trial within a channel.
+  # Phase aggregation uses mean(sin) and mean(cos) — the standard circular
+  # mean in Cartesian form (Fisher 1993). This gives the average delivered
+  # phase direction across good-fit bursts within each cell.
+  # EP magnitude uses median, consistent with all other summary models.
+  summaryNB_gf <- ddply(dataGoodFit_NB, .(sid, numStims, channel),
+    summarize, magnitude = median(magnitude),
+    sin_phase = mean(sin_phase_burst), cos_phase = mean(cos_phase_burst),
+    betaLabels = first(betaLabels))
+
+  # baselines from UNFILTERED data — baseline probes have no conditioning stims
+  # so nGoodBeta is always 0; filtering would remove all baselines
+  # basePerChan already computed (~line 408): one median per (sid, channel)
+  summaryNB_gf <- merge(summaryNB_gf, basePerChan, by = c("sid", "channel"))
+  summaryNB_gf$baselineMag_c <- summaryNB_gf$baselineMag - mean(summaryNB_gf$baselineMag)
+  summaryNB_gf$doseNum <- as.numeric(factor(summaryNB_gf$numStims,
+    levels = c("[1,2]","[3,4]","[5,inf)"))) - 1
+
+  # ordinal dose coding
+  summaryNB_gf$numStims_ord <- ordered(summaryNB_gf$numStims,
+    levels = c("[1,2]", "[3,4]", "[5,inf)"))
+  summaryNB_gf$dose_linpoly <- poly_lin[as.numeric(summaryNB_gf$numStims_ord)]
+
+  nSubj_gf <- length(unique(summaryNB_gf$sid))
+  nChan_gf <- length(unique(summaryNB_gf$channel))
+  cat(sprintf("Good-fit summary: %d obs, %d subjects, %d channels\n",
+      nrow(summaryNB_gf), nSubj_gf, nChan_gf))
+
+  # refit Model 5a — drop betaLabels if beta-only fallback (all channels are beta)
+  # 5a-gf uses per-burst phase which collapses within each (sid, numStims,
+  # channel) cell — ~96 obs total. Random dose slope is singular at this
+  # sample size (verified 2026-04-10 after the random-slope investigation).
+  # Intercepts-only. Note: the p-value on dose without a random slope is
+  # anti-conservative because within-subject dose observations are treated as
+  # more independent than they are. For the stable, fully-grouped version
+  # (5a-gf2, 153 obs) we use the full random-slope structure.
+  gf_formula <- if (use_beta_only) {
+    magnitude ~ numStims_ord * (sin_phase + cos_phase) + baselineMag_c +
+      (1 | sid) + (1 | channel)
+  } else {
+    magnitude ~ numStims_ord * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+      (1 | sid) + (1 | channel)
+  }
+
+  fit.sincos.ordinal.gf = lmerTest::lmer(gf_formula,
+    data = summaryNB_gf,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("\nModel 5a-gf (good beta fits only, per-burst phase):\n")
+  cat("Singular:", isSingular(fit.sincos.ordinal.gf), "\n")
+  print(summary(fit.sincos.ordinal.gf))
+  cat("\nType III ANOVA (Satterthwaite):\n")
+  print(anova(fit.sincos.ordinal.gf))
+
+  # joint tests (ML)
+  fit.sincos.ordinal.gf.ml = update(fit.sincos.ordinal.gf, REML = FALSE)
+  nophase_gf_formula <- if (use_beta_only) {
+    magnitude ~ numStims_ord + baselineMag_c +
+      (1 | sid) + (1 | channel)
+  } else {
+    magnitude ~ numStims_ord + betaLabels + baselineMag_c +
+      (1 | sid) + (1 | channel)
+  }
+  fit.sincos.nophase.gf.ml = lmerTest::lmer(nophase_gf_formula,
+    data = summaryNB_gf, REML = FALSE,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("\nLRT (good-fit): full vs no-phase (omnibus phase test):\n")
+  print(anova(fit.sincos.nophase.gf.ml, fit.sincos.ordinal.gf.ml))
+
+  cat("\nWald test (good-fit): average phase modulation:\n")
+  print(car::linearHypothesis(fit.sincos.ordinal.gf,
+    c("sin_phase = 0", "cos_phase = 0")))
+
+  cat(sprintf("\nComparison: Model 5a AIC=%.1f vs 5a-gf AIC=%.1f\n",
+      AIC(fit.sincos.ordinal), AIC(fit.sincos.ordinal.gf)))
+
+  # --- Phase-response curve for good-fit model ---
+  at_base_gf <- list(betaLabels = "0", baselineMag_c = 0)
+  if (use_beta_only) at_base_gf <- list(baselineMag_c = 0)
+
+  emm_curve_gf <- lapply(phase_vals, function(ph) {
+    at_args <- c(list(sin_phase = sin(ph * pi / 180),
+                      cos_phase = cos(ph * pi / 180)), at_base_gf)
+    em <- emmeans(fit.sincos.ordinal.gf, ~ numStims_ord, at = at_args)
+    df <- as.data.frame(em)
+    df$phase_deg <- ph
+    df
+  })
+  emm_curve_gf_df <- do.call(rbind, emm_curve_gf)
+
+  p_5a_gf <- ggplot(emm_curve_gf_df, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+    theme_light(base_size = 14) +
+    geom_line(linewidth = 0.8) + geom_point(size = 2) +
+    geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord), alpha = 0.15, color = NA) +
+    labs(x = "Delivered Phase (degrees)",
+         y = expression(paste("Predicted Magnitude (", mu, "V)")),
+         color = "Dose", fill = "Dose",
+         title = "Model 5a-gf: Phase-Response Curve (good beta fits only)") +
+    scale_x_continuous(breaks = seq(0, 315, by = 45))
+  p_5a_gf
+
+  if(savePlot){
+    ggsave(here("output_plots","betaStim_model5a_gf_phase_curve.png"), plot = p_5a_gf,
+           units = "in", width = 7, height = 4.5, dpi = 600)
+    ggsave(here("output_plots","betaStim_model5a_gf_phase_curve.eps"), plot = p_5a_gf,
+           units = "in", width = 7, height = 4.5, dpi = 600, device = cairo_ps)
+  }
+
+  # ========================================================================
+  # Model 5a-gf2: Good-fit trials, CHANNEL-LEVEL phase predictor
+  # ========================================================================
+  cat("\n=== Model 5a-gf2: Good-fit trials, channel-level phase ===\n")
+
+  dataGoodFit_NB$phaseDeg_round <- round(dataGoodFit_NB$phaseDeg, 1)
+
+  # Channel-level phase-quality filter for 5a-gf2 (5a-gf uses per-burst
+  # phase and already gets a per-burst filter upstream via minBurstVecLength_gf)
+  data_gf2 <- apply_min_filter(dataGoodFit_NB, "phaseVecLength",
+    minPhaseVecLength_gf2, label = "Model 5a-gf2")
+
+  summaryNB_gf2 <- ddply(data_gf2, .(sid, phaseDeg_round, numStims, channel),
+    summarize, magnitude = median(magnitude),
+    sin_phase = first(sin_phase), cos_phase = first(cos_phase),
+    betaLabels = first(betaLabels))
+
+  summaryNB_gf2 <- merge(summaryNB_gf2, basePerChan, by = c("sid", "channel"))
+  summaryNB_gf2$baselineMag_c <- summaryNB_gf2$baselineMag - mean(summaryNB_gf2$baselineMag)
+  summaryNB_gf2$doseNum <- as.numeric(factor(summaryNB_gf2$numStims,
+    levels = c("[1,2]","[3,4]","[5,inf)"))) - 1
+  summaryNB_gf2$numStims_ord <- ordered(summaryNB_gf2$numStims,
+    levels = c("[1,2]", "[3,4]", "[5,inf)"))
+  summaryNB_gf2$dose_linpoly <- poly_lin[as.numeric(summaryNB_gf2$numStims_ord)]
+
+  nSubj_gf2 <- length(unique(summaryNB_gf2$sid))
+  nChan_gf2 <- length(unique(summaryNB_gf2$channel))
+  cat(sprintf("Good-fit summary (channel-level phase): %d obs, %d subjects, %d channels\n",
+      nrow(summaryNB_gf2), nSubj_gf2, nChan_gf2))
+
+  # Match Model 5a's random structure: random dose slope per subject.
+  # Post 702d24 fix (2026-04-10) this is non-singular for 5a-gf2 as well.
+  fit.sincos.ordinal.gf2 = lmerTest::lmer(
+    magnitude ~ numStims_ord * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+    (1 + dose_linpoly | sid) + (1 | channel),
+    data = summaryNB_gf2,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("Singular:", isSingular(fit.sincos.ordinal.gf2), "\n")
+  print(summary(fit.sincos.ordinal.gf2))
+  cat("\nType III ANOVA (Satterthwaite):\n")
+  print(anova(fit.sincos.ordinal.gf2))
+
+  fit.sincos.ordinal.gf2.ml = update(fit.sincos.ordinal.gf2, REML = FALSE)
+  fit.sincos.nophase.gf2.ml = lmerTest::lmer(
+    magnitude ~ numStims_ord + betaLabels + baselineMag_c +
+    (1 + dose_linpoly | sid) + (1 | channel),
+    data = summaryNB_gf2, REML = FALSE,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+  cat("\nLRT (gf2): full vs no-phase (omnibus phase test):\n")
+  print(anova(fit.sincos.nophase.gf2.ml, fit.sincos.ordinal.gf2.ml))
+
+  cat("\nWald test (gf2): average phase modulation (sin=cos=0 at mean dose):\n")
+  print(car::linearHypothesis(fit.sincos.ordinal.gf2,
+    c("sin_phase = 0", "cos_phase = 0")))
+
+  # All pairwise dose contrasts use Tukey adjustment (default for pairs()).
+  cat("\n--- emmeans (gf2): dose contrasts at phase 90 and 270 (Tukey-adjusted) ---\n")
+  emm_gf2_90 <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
+    at = list(sin_phase = 1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+  emm_gf2_270 <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
+    at = list(sin_phase = -1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+  cat("At phase=90:\n"); print(as.data.frame(emm_gf2_90))
+  cat("At phase=270:\n"); print(as.data.frame(emm_gf2_270))
+
+  emm_curve_gf2 <- lapply(phase_vals, function(ph) {
+    em <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
+      at = list(sin_phase = sin(ph*pi/180), cos_phase = cos(ph*pi/180),
+                betaLabels = "0", baselineMag_c = 0))
+    df <- as.data.frame(em)
+    df$phase_deg <- ph
+    df
+  })
+  emm_curve_gf2_df <- do.call(rbind, emm_curve_gf2)
+
+  lbl_gf2 <- phase_curve_label("Model 5a-gf2", minPhaseVecLength_gf2, nrow(summaryNB_gf2))
+  p_5a_gf2 <- ggplot(emm_curve_gf2_df, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+    theme_light(base_size = 14) +
+    geom_line(linewidth = 0.8) + geom_point(size = 2) +
+    geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord), alpha = 0.15, color = NA) +
+    labs(x = "Delivered Phase (degrees)",
+         y = expression(paste("Predicted Magnitude (", mu, "V)")),
+         color = "Dose", fill = "Dose",
+         title = lbl_gf2$title,
+         subtitle = "emmeans ± 95% CI; baselineMag_c = 0, betaLabels = 0") +
+    scale_x_continuous(breaks = seq(0, 315, by = 45))
+  p_5a_gf2
+
+  if(savePlot){
+    ggsave(here("output_plots", paste0(lbl_gf2$fname, ".png")), plot = p_5a_gf2,
+           units = "in", width = 7, height = 4.5, dpi = 600)
+    ggsave(here("output_plots", paste0(lbl_gf2$fname, ".eps")), plot = p_5a_gf2,
+           units = "in", width = 7, height = 4.5, dpi = 600, device = cairo_ps)
+  }
+
+  cat(sprintf("\nComparison: 5a AIC=%.1f, 5a-gf (per-burst) AIC=%.1f, 5a-gf2 (channel) AIC=%.1f\n",
+      AIC(fit.sincos.ordinal), AIC(fit.sincos.ordinal.gf), AIC(fit.sincos.ordinal.gf2)))
+
+  # ========================================================================
+  # Raw summary data: percent diff from baseline per cell, colored by
+  # 8 phase bins (45° each, wrapped so 0/90/180/270 fall at bin CENTERS).
+  # Two variants built from the same template:
+  #   - summaryNB_m5  → Model 5a  (all trials, phaseVecLength ≥ minPhaseVecLength_5a)
+  #   - summaryNB_gf2 → Model 5a-gf2 (good-fit trials, phaseVecLength ≥ minPhaseVecLength_gf2)
+  # x-axis: same 3-level dose binning used by the LME models.
+  # ========================================================================
+
+  # Helper: 8 wedges of 45° each. Breaks at [−22.5, 22.5, 67.5, ..., 337.5]
+  # wrap back to the "0" label via cut()'s label trick (first and last
+  # intervals both get "0" so phases near 0° and near 360° merge).
+  bin8phase_fn <- function(phase_deg) {
+    b <- cut(phase_deg %% 360,
+             breaks = c(-1, 22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5, 361),
+             labels = c("0", "45", "90", "135", "180", "225", "270", "315", "0"))
+    factor(b, levels = c("0", "45", "90", "135", "180", "225", "270", "315"))
+  }
+
+  # ------------------------------------------------------------------------
+  # Compute percentDiffBase + phaseBin on both summary tables
+  # ------------------------------------------------------------------------
+  summaryNB_gf2$percentDiffBase <- 100 *
+    (summaryNB_gf2$magnitude - summaryNB_gf2$baselineMag) / summaryNB_gf2$baselineMag
+  summaryNB_gf2$phaseBin <- bin8phase_fn(summaryNB_gf2$phaseDeg_round)
+
+  summaryNB_m5$percentDiffBase <- 100 *
+    (summaryNB_m5$magnitude - summaryNB_m5$baselineMag) / summaryNB_m5$baselineMag
+  summaryNB_m5$phaseBin <- bin8phase_fn(summaryNB_m5$phaseDeg_round)
+
+  # Dodge dots by phase bin so each phase has its own sub-column within each
+  # dose bin. To give the dose groups visible breathing room (and make the
+  # 8-bin phase sub-columns readable), we manually place the three dose
+  # groups at widely-spaced continuous x positions (1, 3, 5) rather than at
+  # the default discrete positions (1, 2, 3). Each group spans dodge_width,
+  # leaving a clear gap between groups with a dashed vertical separator.
+  make_raw_plot <- function(df, model_label, r_thresh, n_subj, n_chan) {
+    df$numStims_x <- c(1, 3, 5)[as.numeric(df$numStims_ord)]
+    dodge_width <- 1.4
+    ggplot(df,
+      aes(x = numStims_x, y = percentDiffBase, color = phaseBin,
+          group = phaseBin)) +
+      theme_light(base_size = 14) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+      geom_vline(xintercept = c(2, 4), linetype = "dashed",
+                 color = "grey70", linewidth = 0.5) +
+      geom_point(alpha = 0.5, size = 2,
+                 position = position_jitterdodge(jitter.width = 0.18,
+                                                 dodge.width = dodge_width)) +
+      stat_summary(fun.data = median_hilow, fun.args = list(conf.int = 0.5),
+                   geom = "errorbar", width = 0.35, linewidth = 0.8,
+                   position = position_dodge(width = dodge_width)) +
+      stat_summary(fun = median, geom = "point", size = 3, shape = 23,
+                   fill = "white", stroke = 1,
+                   position = position_dodge(width = dodge_width)) +
+      labs(x = "Number of Conditioning Stimuli",
+           y = "Percent Difference from Baseline",
+           color = "Delivered phase\n(deg, 8 bins × 45°)",
+           title = sprintf("%s: Dose × Phase (8 bins)", model_label),
+           subtitle = sprintf("%d cells from %d subjects × %d channels × phase conditions (phaseVecLength ≥ %.2f)",
+                              nrow(df), n_subj, n_chan, r_thresh)) +
+      scale_x_continuous(breaks = c(1, 3, 5),
+                         labels = c("[1,2]", "[3,4]", "[5,inf)"),
+                         limits = c(0.1, 5.9)) +
+      scale_color_viridis_d(option = "turbo", end = 0.95)
+  }
+
+  nSubj_m5  <- length(unique(summaryNB_m5$sid))
+  nChan_m5  <- length(unique(summaryNB_m5$channel))
+
+  p_5a_raw      <- make_raw_plot(summaryNB_m5,  "Model 5a",     minPhaseVecLength_5a,
+                                 nSubj_m5, nChan_m5)
+  p_5a_gf2_raw  <- make_raw_plot(summaryNB_gf2, "Model 5a-gf2", minPhaseVecLength_gf2,
+                                 nSubj_gf2, nChan_gf2)
+
+  if (savePlot) {
+    ggsave(here("output_plots","betaStim_model5a_raw_8phase.png"), plot = p_5a_raw,
+           units = "in", width = 9, height = 5, dpi = 600)
+    ggsave(here("output_plots","betaStim_model5a_raw_8phase.eps"), plot = p_5a_raw,
+           units = "in", width = 9, height = 5, dpi = 600, device = cairo_ps)
+    ggsave(here("output_plots","betaStim_model5a_gf2_raw_8phase.png"), plot = p_5a_gf2_raw,
+           units = "in", width = 9, height = 5, dpi = 600)
+    ggsave(here("output_plots","betaStim_model5a_gf2_raw_8phase.eps"), plot = p_5a_gf2_raw,
+           units = "in", width = 9, height = 5, dpi = 600, device = cairo_ps)
+  }
+
+} else {
+  cat("No burst_phase_precision CSVs found — skipping secondary analysis.\n")
+  cat("Run compute_burst_phase_precision.m for each subject first.\n")
+}
+
+# ========================================================================
+# Phase quality sensitivity analysis: fit Model 5a and 5a-gf2 at a grid of
+# minPhaseVecLength thresholds and report dose.L / sin / cos p-values.
+# Useful for manuscript sensitivity tables.
+# ========================================================================
+phase_quality_sensitivity <- function() {
+  thresholds <- c(0, 0.1, 0.2, 0.3, 0.4)
+  results <- list()
+
+  fit_one <- function(data_in, model_label, r_thresh) {
+    d <- data_in
+    if (r_thresh > 0) {
+      d <- d[!is.na(d$phaseVecLength) & d$phaseVecLength >= r_thresh, ]
+    }
+    if (nrow(d) == 0) return(NULL)
+    summ <- ddply(d, .(sid, phaseDeg_round, numStims, channel),
+      summarize, magnitude = median(magnitude),
+      sin_phase = first(sin_phase), cos_phase = first(cos_phase),
+      betaLabels = first(betaLabels))
+    summ <- merge(summ, basePerChan, by = c("sid", "channel"))
+    summ$baselineMag_c <- summ$baselineMag - mean(summ$baselineMag)
+    summ$numStims_ord <- ordered(summ$numStims,
+      levels = c("[1,2]", "[3,4]", "[5,inf)"))
+    summ <- summ[!is.na(summ$numStims_ord), ]
+    summ$dose_linpoly <- poly_lin[as.numeric(summ$numStims_ord)]
+    summ$betaLabels <- as.factor(summ$betaLabels)
+
+    fit <- tryCatch(
+      lmerTest::lmer(
+        magnitude ~ numStims_ord * (sin_phase + cos_phase) +
+          betaLabels + baselineMag_c +
+          (1 + dose_linpoly | sid) + (1 | channel),
+        data = summ,
+        control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000))),
+      error = function(e) NULL)
+    if (is.null(fit)) return(NULL)
+
+    coefs <- summary(fit)$coefficients
+    list(
+      model = model_label,
+      r_thresh = r_thresh,
+      n_obs = nrow(summ),
+      n_ch = length(unique(summ$channel)),
+      n_subj = length(unique(summ$sid)),
+      singular = isSingular(fit),
+      dose_L_est = coefs["numStims_ord.L", "Estimate"],
+      dose_L_p   = coefs["numStims_ord.L", "Pr(>|t|)"],
+      sin_est    = coefs["sin_phase", "Estimate"],
+      sin_p      = coefs["sin_phase", "Pr(>|t|)"],
+      cos_est    = coefs["cos_phase", "Estimate"],
+      cos_p      = coefs["cos_phase", "Pr(>|t|)"])
+  }
+
+  cat("\n\n=== PHASE QUALITY SENSITIVITY ANALYSIS ===\n")
+
+  # Model 5a (all trials)
+  for (th in thresholds) {
+    r <- fit_one(dataNoBaseline, "5a", th)
+    if (!is.null(r)) results[[length(results) + 1]] <- r
+  }
+
+  # Model 5a-gf2 (good-fit trials, channel-level phase)
+  if (exists("dataGoodFit_NB")) {
+    for (th in thresholds) {
+      r <- fit_one(dataGoodFit_NB, "5a-gf2", th)
+      if (!is.null(r)) results[[length(results) + 1]] <- r
+    }
+  }
+
+  df <- do.call(rbind, lapply(results, function(x) {
+    data.frame(
+      Model      = x$model,
+      `r_thresh` = x$r_thresh,
+      N          = x$n_obs,
+      `N_chan`   = x$n_ch,
+      `N_subj`   = x$n_subj,
+      Singular   = x$singular,
+      dose_L_est = round(x$dose_L_est, 2),
+      dose_L_p   = round(x$dose_L_p, 4),
+      sin_est    = round(x$sin_est, 2),
+      sin_p      = round(x$sin_p, 4),
+      cos_est    = round(x$cos_est, 2),
+      cos_p      = round(x$cos_p, 4),
+      check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+  cat("\n")
+  print(df, row.names = FALSE)
+
+  # Save to CSV for manuscript
+  out_csv <- here("output_plots", "betaStim_phase_quality_sensitivity.csv")
+  write.csv(df, out_csv, row.names = FALSE)
+  cat(sprintf("\nSaved sensitivity table: %s\n", out_csv))
+
+  invisible(df)
+}
+if (runPhaseSensitivity) {
+  phase_quality_sensitivity_df <- phase_quality_sensitivity()
+}
+
 # ------------------------------------------------------------------------
 # Model 4 (trial-level, nested conditions): correct DF for phaseClass
 # ------------------------------------------------------------------------
@@ -927,7 +2054,7 @@ pairs(emm_nested_dose)
 emm_nested_phase <- emmeans(fit.nested.condition, ~ phaseClass | numStims)
 pairs(emm_nested_phase)
 
-tab_model(fit.nested.condition)
+if (showTabModel) tab_model(fit.nested.condition)
 
 figHeight = 4
 figWidth = 8
@@ -1165,8 +2292,19 @@ diag_list <- list(
   residual_diagnostics(fit.modelD, "3b: Baseline category"),
   residual_diagnostics(fit.ancova, "3c: ANCOVA"),
   residual_diagnostics(fit.ordinal_lmer, "3d: Ordinal"),
-  residual_diagnostics(fit.numeric, "3e: Numeric")
+  residual_diagnostics(fit.numeric, "3e: Numeric"),
+  residual_diagnostics(fit.sincos.ordinal, "5a: Sincos ordinal"),
+  residual_diagnostics(fit.sincos.numeric, "5b: Sincos numeric"),
+  residual_diagnostics(fit.sincos.categ, "5c: Sincos categorical")
 )
+if (exists("fit.sincos.ordinal.gf")) {
+  diag_list <- c(diag_list,
+    list(residual_diagnostics(fit.sincos.ordinal.gf, "5a-gf: good-fit per-burst")))
+}
+if (exists("fit.sincos.ordinal.gf2")) {
+  diag_list <- c(diag_list,
+    list(residual_diagnostics(fit.sincos.ordinal.gf2, "5a-gf2: good-fit channel")))
+}
 diag_df <- do.call(rbind, diag_list)
 print(diag_df)
 
@@ -1177,8 +2315,19 @@ if (savePlot) {
     list(fit = fit.modelD, name = "3b_baseline"),
     list(fit = fit.ancova, name = "3c_ANCOVA"),
     list(fit = fit.ordinal_lmer, name = "3d_ordinal"),
-    list(fit = fit.numeric, name = "3e_numeric")
+    list(fit = fit.numeric, name = "3e_numeric"),
+    list(fit = fit.sincos.ordinal, name = "5a_sincos_ordinal"),
+    list(fit = fit.sincos.numeric, name = "5b_sincos_numeric"),
+    list(fit = fit.sincos.categ, name = "5c_sincos_categorical")
   )
+  if (exists("fit.sincos.ordinal.gf")) {
+    summary_models <- c(summary_models,
+      list(list(fit = fit.sincos.ordinal.gf, name = "5a_gf_sincos")))
+  }
+  if (exists("fit.sincos.ordinal.gf2")) {
+    summary_models <- c(summary_models,
+      list(list(fit = fit.sincos.ordinal.gf2, name = "5a_gf2_sincos")))
+  }
 
   figHeight <- 5
   figWidth <- 6
@@ -1248,16 +2397,24 @@ if (requireNamespace("officer", quietly = TRUE) &&
               "3b: Magnitude + baseline",
               "3c: ANCOVA (primary)",
               "3d: Ordinal dose",
-              "3e: Numeric dose"),
+              "3e: Numeric dose",
+              "5a: Sin/cos ordinal (ANCOVA)",
+              "5b: Sin/cos numeric",
+              "5c: Sin/cos categorical"),
     N = c(nrow(summaryNB), nrow(summaryAll), nrow(summaryNB_ancova),
-          nrow(summaryNB_ancova), nrow(summaryNB_ancova)),
+          nrow(summaryNB_ancova), nrow(summaryNB_ancova),
+          nrow(summaryNB_m5), nrow(summaryNB_m5), nrow(summaryNB_m5)),
     AIC = round(c(AIC(fit.absDiff), AIC(fit.modelD), AIC(fit.ancova),
-                   AIC(fit.ordinal_lmer), AIC(fit.numeric)), 1),
+                   AIC(fit.ordinal_lmer), AIC(fit.numeric),
+                   AIC(fit.sincos.ordinal), AIC(fit.sincos.numeric), AIC(fit.sincos.categ)), 1),
     BIC = round(c(BIC(fit.absDiff), BIC(fit.modelD), BIC(fit.ancova),
-                   BIC(fit.ordinal_lmer), BIC(fit.numeric)), 1),
+                   BIC(fit.ordinal_lmer), BIC(fit.numeric),
+                   BIC(fit.sincos.ordinal), BIC(fit.sincos.numeric), BIC(fit.sincos.categ)), 1),
     Singular = c(isSingular(fit.absDiff), isSingular(fit.modelD),
                  isSingular(fit.ancova), isSingular(fit.ordinal_lmer),
-                 isSingular(fit.numeric)),
+                 isSingular(fit.numeric),
+                 isSingular(fit.sincos.ordinal), isSingular(fit.sincos.numeric),
+                 isSingular(fit.sincos.categ)),
     stringsAsFactors = FALSE
   )
   doc <- body_add_par(doc, "Table: Model Comparison", style = "heading 2")
@@ -1347,6 +2504,7 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- add_model_tables(doc, fit.absDiff, "Model 3a (absDiff, intercepts only)")
   doc <- add_model_tables(doc, fit.ancova, "Model 3c (ANCOVA, primary)")
   doc <- add_model_tables(doc, fit.numeric, "Model 3e (numeric dose)")
+  doc <- add_model_tables(doc, fit.sincos.ordinal, "Model 5a (sin/cos ordinal, ANCOVA)")
 
   # ------------------------------------------------------------------
   # EMM Dose Contrasts: Model 3a
@@ -1447,6 +2605,31 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- body_add_par(doc, "")
 
   # ------------------------------------------------------------------
+  # Model 5a: Total-variance effect sizes (Westfall et al. 2014)
+  # ------------------------------------------------------------------
+  es_90_export <- es_90[, c("contrast", "estimate", "d_total", "d_total_lower", "d_total_upper", "d_conditional")]
+  es_90_export[, -1] <- round(es_90_export[, -1], 3)
+  names(es_90_export) <- c("Contrast", "Estimate (uV)", "d_total", "d_total lower", "d_total upper", "d_conditional")
+
+  doc <- body_add_par(doc, "Effect Sizes: Model 5a Dose at Phase=90", style = "heading 2")
+  ft <- flextable(es_90_export) |> autofit() |>
+    set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=90 deg (Model 5a). d_total denominator = %.1f uV (total SD), d_conditional = %.1f uV (residual SD).",
+                        total_sd_5a, resid_sd_5a))
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  es_270_export <- es_270[, c("contrast", "estimate", "d_total", "d_total_lower", "d_total_upper", "d_conditional")]
+  es_270_export[, -1] <- round(es_270_export[, -1], 3)
+  names(es_270_export) <- c("Contrast", "Estimate (uV)", "d_total", "d_total lower", "d_total upper", "d_conditional")
+
+  doc <- body_add_par(doc, "Effect Sizes: Model 5a Dose at Phase=270", style = "heading 2")
+  ft <- flextable(es_270_export) |> autofit() |>
+    set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=270 deg (Model 5a). d_total denominator = %.1f uV.",
+                        total_sd_5a))
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # ------------------------------------------------------------------
   # Save .docx
   # ------------------------------------------------------------------
   docx_path <- paste0(outputDir, "/betaStim_statistical_tables.docx")
@@ -1456,4 +2639,92 @@ if (requireNamespace("officer", quietly = TRUE) &&
 } else {
   cat("Install officer and flextable packages for .docx export:\n")
   cat("  install.packages(c('officer', 'flextable'))\n")
+}
+
+# ========================================================================
+# Per-subject per-channel phase scatter plots
+# ========================================================================
+# For each subject: one image with channels as rows, doses as columns.
+# Each dot = one probe trial. x = per-burst delivered phase (burstCircMean),
+# y = baseline-normalized EP magnitude (magnitude - channel baseline).
+# Organized into multi-phase subjects (c91479, 702d24, 0b5a2e) and
+# single-phase subjects (d5cd55, 7dbdec, 9ab7ab). ecb43e (triple) separate.
+# Loess smoother shows phase-response trend per channel per dose.
+
+if (savePlot) {
+  cat("\n========== Per-subject per-channel phase scatter plots ==========\n")
+
+  multi_sids <- c("c91479", "702d24", "0b5a2e")
+  single_sids <- c("d5cd55", "7dbdec", "9ab7ab")
+  triple_sids <- c("ecb43e")
+
+  if (exists("precision_combined")) {
+    # precision_combined already loaded before Model 6
+    precision_combined$channelEncoded <- as.factor(precision_combined$channelEncoded)
+
+    # merge burstCircMean into trial-level data
+    prec_cols <- precision_combined[, c("probeSample", "channelEncoded", "burstCircMean")]
+    data_phase <- merge(data, prec_cols,
+      by.x = c("probeSample", "channel"), by.y = c("probeSample", "channelEncoded"), all.x = TRUE)
+
+    # use basePerChan already computed (line ~407): one median per (sid, channel)
+    # rename to avoid collision with existing baseMedian column from earlier loop
+    base_for_scatter <- basePerChan
+    names(base_for_scatter)[names(base_for_scatter) == "baselineMag"] <- "base_scatter"
+    data_phase <- merge(data_phase, base_for_scatter, by = c("sid", "channel"), all.x = TRUE)
+    data_phase$diff_from_base <- data_phase$magnitude - data_phase$base_scatter
+
+    # exclude baselines for plotting
+    data_phase_NB <- data_phase[data_phase$numStims != "Base", ]
+    data_phase_NB$numStims <- factor(data_phase_NB$numStims, levels = c("[1,2]", "[3,4]", "[5,inf)"))
+
+    # function to make per-subject plot
+    make_subj_plot <- function(sid_val, subj_data, title_suffix = "") {
+      subj_data$chan_label <- paste0("Ch ", subj_data$channel)
+      chan_order <- sort(unique(subj_data$chan_label))
+      subj_data$chan_label <- factor(subj_data$chan_label, levels = chan_order)
+      nChan <- length(chan_order)
+
+      p <- ggplot(subj_data, aes(x = burstCircMean, y = diff_from_base)) +
+        theme_light(base_size = 10) +
+        facet_grid(chan_label ~ numStims, scales = "free_y") +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+        geom_point(alpha = 0.3, size = 0.8) +
+        geom_smooth(method = "loess", se = TRUE, color = "red", linewidth = 0.6, span = 0.75) +
+        labs(x = "Per-Burst Delivered Phase (degrees)",
+             y = expression(paste(Delta, " from Baseline (", mu, "V)")),
+             title = paste0(sid_val, ": Baseline-Normalized EP vs Burst Phase", title_suffix)) +
+        scale_x_continuous(breaks = seq(0, 315, by = 90))
+
+      fig_height <- max(3, nChan * 2)
+      ggsave(here("output_plots", sprintf("betaStim_%s_phase_scatter.png", sid_val)),
+             plot = p, units = "in", width = 10, height = fig_height, dpi = 600)
+      cat(sprintf("  %s: %d channels, %d probes with burst phase\n",
+          sid_val, nChan, sum(!is.na(subj_data$burstCircMean))))
+    }
+
+    # --- Multi-phase subjects ---
+    cat("\nMulti-phase subjects (2 target phases per channel):\n")
+    for (sid_val in multi_sids) {
+      subj <- data_phase_NB[data_phase_NB$sid == sid_val & !is.na(data_phase_NB$burstCircMean), ]
+      if (nrow(subj) > 0) make_subj_plot(sid_val, subj, " [multi-phase]")
+    }
+
+    # --- Single-phase subjects ---
+    cat("\nSingle-phase subjects (1 target phase per channel):\n")
+    for (sid_val in single_sids) {
+      subj <- data_phase_NB[data_phase_NB$sid == sid_val & !is.na(data_phase_NB$burstCircMean), ]
+      if (nrow(subj) > 0) make_subj_plot(sid_val, subj, " [single-phase]")
+    }
+
+    # --- Triple-condition subject (ecb43e) ---
+    cat("\nTriple-condition subject:\n")
+    for (sid_val in triple_sids) {
+      subj <- data_phase_NB[data_phase_NB$sid == sid_val & !is.na(data_phase_NB$burstCircMean), ]
+      if (nrow(subj) > 0) make_subj_plot(sid_val, subj, " [targeted + random]")
+    }
+
+  } else {
+    cat("No burst_phase_precision CSVs found — skipping per-subject scatter.\n")
+  }
 }

@@ -18,6 +18,10 @@ rerefMode = 'median';
 %%
 for idx = 1:1
     sid = SIDS{idx};
+    % defaults for peak-to-peak extraction (overridden per subject as needed)
+    ppOpt = 'abs';
+    ppMinPeakDist = 15;
+    ppFramelen = 171;  % Savitzky-Golay frame length (narrow to 91 for tight windows)
     
     switch(sid)
         
@@ -69,8 +73,11 @@ for idx = 1:1
             betaChan = 5;
             stims = [13 14];
             goods = [ 5 ];
-            t_min = 0.008;
-            t_max = 0.046;
+            t_min = 0.00323;  % 3.23 ms post actual stim = 3.8 ms post command (2026-04-10)
+            t_max = 0.025;    % changed from 0.046 (2026-04-09)
+            ppOpt = 'falling';  % force peak-then-trough order (2026-04-09)
+            ppMinPeakDist = round(0.005 * 24414);  % 5 ms at 24414 Hz = 122 samples
+            ppFramelen = 91;  % match plot_EP_goodfit_by_phase (2026-04-10)
             bads = [23 27 28 29 30 32 44 52 60];
             
         case 'ecb43e' % added DJC 7-23-2015
@@ -362,7 +369,7 @@ for idx = 1:1
             end
             %%
             
-            [signalPP,pkLocs,trLocs] =  extract_PP_betaStim(awins,t,tBegin,tEnd,smoothPP);
+            [signalPP,pkLocs,trLocs] =  extract_PP_betaStim(awins,t,tBegin,tEnd,smoothPP,ppOpt,ppMinPeakDist,ppFramelen);
             
             dataForPPanalysis{chan}{typei} = {signalPP pkLocs trLocs label keeps};
             

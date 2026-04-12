@@ -20,5 +20,5 @@ function outDir = getSubjDir(subjID)
     root = myGetenv('subject_dir');    
 %     pid = genPID(subjID);    
 
-    outDir = (strcat(root, '\', subjID,'\'));
+    outDir = fullfile(root, subjID);
 end

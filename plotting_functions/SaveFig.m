@@ -10,14 +10,20 @@ end
 
 destFile = '';
 
-if (lower(path(1)) == 'c'  || lower(path(1)) == 'd' || lower(path(1))== 'g') && lower(path(2)) == ':'
+if path(1) == '/' || path(1) == '~' || (length(path) >= 2 && lower(path(2)) == ':')
+    % absolute path (Unix or Windows) — use directly
     destFile = path;
+    if ~exist(destFile, 'dir')
+        mkdir(destFile);
+    end
 else
     if path(end) ~= '/' && path(end) ~= '\'
         path(end+1) = '/';
     end
-    destFile = ['c:/Tim/research/script/generated_figs/' path];
-    TouchDir(destFile);
+    destFile = [pwd '/' path];
+    if ~exist(destFile, 'dir')
+        mkdir(destFile);
+    end
 end
 destFile = [destFile '/' filename '.'];
 
@@ -45,7 +51,7 @@ if (exist('opt','var') && ~isempty(opt))
         case 'png'
             print('-dpng', '-noui', '-opengl',[destFile filetype],opt);
         case 'eps'
-            print('-dpsc2', '-noui', '-painters',[destFile filetype],opt);
+            print('-depsc', '-noui', '-painters',[destFile filetype],opt);
         case 'svg'
             print('-dsvg','-noui', '-painters',[destFile filetype],opt);
     end
@@ -56,7 +62,7 @@ else
         case 'png'
             print('-dpng', '-noui', '-opengl',[destFile filetype]);
         case 'eps'
-            print('-dpsc2', '-noui', '-painters',[destFile filetype]);
+            print('-depsc', '-noui', '-painters',[destFile filetype]);
         case 'svg'
             print('-dsvg','-noui', '-painters',[destFile filetype]);
             

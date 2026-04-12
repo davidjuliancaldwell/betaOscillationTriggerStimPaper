@@ -13,24 +13,17 @@
 % first written by Andrew ko, modified by DJC 4-13-2018
 
 
-function [amp,pk_loc,tr_loc]=peak_to_peak_beta_stim(signal,varargin)
+function [amp,pk_loc,tr_loc]=peak_to_peak_beta_stim(signal,opt,minPeakDist)
 
-if nargin < 2
+if nargin < 2 || isempty(opt)
     opt='abs';
-end;
+end
+if nargin < 3 || isempty(minPeakDist)
+    minPeakDist = 15;
+end
 
-
-% min peak prominence - before 8-16-2018 , 5e-6
-% min peak prominence - 8-16-2018 , 5e-6
-% before 9-19-2018 - was 1e-6
-
-% add in peak separation - this is in samples
-
-%[ppks,plats]=findpeaks(signal,'minpeakprominence',1e-8,'MinPeakDistance',35);
-%[npks,nlats]=findpeaks(-signal,'minpeakprominence',1e-8,'MinPeakDistance',35);
-
-[ppks,plats]=findpeaks(signal,'MinPeakDistance',15);
-[npks,nlats]=findpeaks(-signal,'MinPeakDistance',15);
+[ppks,plats]=findpeaks(signal,'MinPeakDistance',minPeakDist);
+[npks,nlats]=findpeaks(-signal,'MinPeakDistance',minPeakDist);
 
 falling=[];
 falling_pk=[];

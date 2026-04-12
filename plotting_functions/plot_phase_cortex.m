@@ -137,12 +137,12 @@ switch typePlot
     case 'value'
         PlotDotsDirect(sid, locs(chans(minChanIndex),:), weights(minChanIndex), 'b',...
             [-pi pi], markerSize(minChanIndex),cmap,[],false,true)
-        
+
         PlotDotsDirect(sid, locs(chans(maxChanIndex),:), weights(maxChanIndex), 'b',...
             [-pi pi], markerSize(maxChanIndex),cmap,[],false,true)
         % plot stimulation channels
         stimulationPlot = PlotBrainJustDots(sid,{stims(1),stims(2)},[0 0 0; 0 0 0],true);
-        
+
         % plot beta channel overlaid
         betaChanPlot = PlotBrainJustDots(sid,{betaChan},[1 1 0],true,50);
         plotObj = gcf;
@@ -153,6 +153,16 @@ switch typePlot
             ['worst fit '],...
             ['stimulation channel'],['stimulation channel'],...
             ['trigger channel = ' num2str(betaChan)]});
+        leg.ItemTokenSize(1) = markerMax * 2;
+        drawnow;
+        legLines = findobj(leg, 'type', 'line');
+        hasMarker = false(size(legLines));
+        for kl = 1:numel(legLines)
+            try; hasMarker(kl) = ~strcmp(legLines(kl).Marker,'none'); catch; end
+        end
+        legLines = legLines(hasMarker);
+        if numel(legLines) >= 1; legLines(end).MarkerSize   = markerSize(minChanIndex); end
+        if numel(legLines) >= 2; legLines(end-1).MarkerSize = markerSize(maxChanIndex); end
         
     case 'magDiff'
         PlotDotsDirect(sid, locs(chans(minChanIndex),:), weights(minChanIndex), 'b',...
@@ -172,7 +182,17 @@ switch typePlot
             ['worst fit '],...
             ['stimulation channel'],['stimulation channel'],...
             ['trigger channel = ' num2str(betaChan)]});
-        
+        leg.ItemTokenSize(1) = markerMax * 2;
+        drawnow;
+        legLines = findobj(leg, 'type', 'line');
+        hasMarker = false(size(legLines));
+        for kl = 1:numel(legLines)
+            try; hasMarker(kl) = ~strcmp(legLines(kl).Marker,'none'); catch; end
+        end
+        legLines = legLines(hasMarker);
+        if numel(legLines) >= 1; legLines(end).MarkerSize   = markerSize(minChanIndex); end
+        if numel(legLines) >= 2; legLines(end-1).MarkerSize = markerSize(maxChanIndex); end
+
         %             {['best fit = ' num2str(maxChanVal)],...
         %             ['worst fit = ' num2str(minChanVal)],...
         %             ['stimulation channel'],['stimulation channel'],...
@@ -184,7 +204,7 @@ switch typePlot
             [-max(abs(weights)) max(abs(weights))], markerSize(maxChanIndex),cmap,[],false,true)
         % plot stimulation channels
         stimulationPlot = PlotBrainJustDots(sid,{stims(1),stims(2)},[0 0 0; 0 0 0],true);
-        
+
         % plot beta channel overlaid
         betaChanPlot = PlotBrainJustDots(sid,{betaChan},[1 1 1],true,50);
         plotObj = gcf;
@@ -195,6 +215,16 @@ switch typePlot
             ['worst fit '],...
             ['stimulation channel'],['stimulation channel'],...
             ['trigger channel = ' num2str(betaChan)]});
+        leg.ItemTokenSize(1) = markerMax * 2;
+        drawnow;
+        legLines = findobj(leg, 'type', 'line');
+        hasMarker = false(size(legLines));
+        for kl = 1:numel(legLines)
+            try; hasMarker(kl) = ~strcmp(legLines(kl).Marker,'none'); catch; end
+        end
+        legLines = legLines(hasMarker);
+        if numel(legLines) >= 1; legLines(end).MarkerSize   = markerSize(minChanIndex); end
+        if numel(legLines) >= 2; legLines(end-1).MarkerSize = markerSize(maxChanIndex); end
 end
 
 set(gca,'fontsize',14)

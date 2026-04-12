@@ -1,11 +1,16 @@
 library("Hmisc"); library("ggplot2"); library("lme4"); library("plyr"); library("here"); library("lmerTest"); library("emmeans"); library("dplyr")
 
 data <- read.table(here("data","output_table","betaStim_outputTable_50_new_100_thresh.csv"),header=TRUE,sep=",",stringsAsFactors=F,
-  colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","setToDeliverPhase"="factor"))
+  colClasses=c("magnitude"="numeric","betaLabels"="factor","sid"="factor","numStims"="factor","stimLevel"="numeric","channel"="factor","subjectNum"="factor","phaseClass"="factor","phaseDeg"="numeric","setToDeliverPhase"="factor"))
 data <- subset(data, magnitude<1500 & magnitude>25)
 data <- subset(data,!is.nan(data$magnitude))
 data <- subset(data, sid!="702d24" & sid!="0b5a2ePlayBack" & numStims!="Null")
 data$numStims <- revalue(data$numStims, c("Test 1"="[1,2]","Test 2"="[3,4]","Test 3"="[5,inf)"))
+
+# circular phase decomposition
+data$phase_rad <- data$phaseDeg * pi / 180
+data$sin_phase <- sin(data$phase_rad)
+data$cos_phase <- cos(data$phase_rad)
 
 # compute absDiff per trial (one baseMedian per channel, pooled across phaseClass)
 data$absDiff <- 0
@@ -167,3 +172,75 @@ p3 <- ggplot(plot_anc, aes(x = dose, y = estimate, color = phaseClass, group = p
 ggsave(here("output_plots","betaStim_emmip_ancova.png"), plot = p3, units = "in", width = 6.5, height = 4.5, dpi = 600)
 
 cat("\nAll 3 plots saved.\n")
+
+# =============================================
+# 4. Sin/cos ANCOVA: continuous phase, ordinal dose
+# =============================================
+summaryNB_sincos <- ddply(dataNoBaseline, .(sid,phaseClass,numStims,channel), summarize,
+  magnitude = median(magnitude), sin_phase = first(sin_phase), cos_phase = first(cos_phase),
+  betaLabels = first(betaLabels))
+basePerChan_sc <- ddply(data[data$numStims == "Base",], .(sid, channel), summarize, baselineMag = median(magnitude))
+summaryNB_sincos <- merge(summaryNB_sincos, basePerChan_sc, by = c("sid", "channel"))
+summaryNB_sincos$baselineMag_c <- summaryNB_sincos$baselineMag - mean(summaryNB_sincos$baselineMag)
+summaryNB_sincos$doseNum <- as.numeric(factor(summaryNB_sincos$numStims,
+  levels = c("[1,2]","[3,4]","[5,inf)"))) - 1
+summaryNB_sincos$numStims_ord <- ordered(summaryNB_sincos$numStims,
+  levels = c("[1,2]", "[3,4]", "[5,inf)"))
+poly_lin <- contr.poly(3)[, 1]
+summaryNB_sincos$dose_linpoly <- poly_lin[as.numeric(summaryNB_sincos$numStims_ord)]
+
+fit.sincos <- lmerTest::lmer(
+  magnitude ~ numStims_ord * (sin_phase + cos_phase) + betaLabels + baselineMag_c +
+  (1 + dose_linpoly | sid) + (1 | channel),
+  data = summaryNB_sincos,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("\n\n=== 4. Sin/cos ANCOVA (ordinal dose, continuous phase) ===\n")
+cat("Singular:", isSingular(fit.sincos), "\n")
+print(anova(fit.sincos))
+
+# LRT: phase effect (ML)
+fit.sincos.ml <- update(fit.sincos, REML = FALSE)
+fit.nophase.ml <- lmerTest::lmer(
+  magnitude ~ numStims_ord + betaLabels + baselineMag_c +
+  (1 + dose_linpoly | sid) + (1 | channel),
+  data = summaryNB_sincos, REML = FALSE,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+cat("\nLRT: omnibus phase test:\n")
+print(anova(fit.nophase.ml, fit.sincos.ml))
+
+# emmeans at phase=90 and 270
+emm_90 <- emmeans(fit.sincos, ~ numStims_ord,
+  at = list(sin_phase = 1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+emm_270 <- emmeans(fit.sincos, ~ numStims_ord,
+  at = list(sin_phase = -1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+cat("\nEmmeans at phase=90:\n"); print(emm_90)
+cat("\nEmmeans at phase=270:\n"); print(emm_270)
+cat("\nDose contrasts at 90:\n"); print(confint(pairs(emm_90)))
+cat("\nDose contrasts at 270:\n"); print(confint(pairs(emm_270)))
+
+# phase-response curve
+phase_vals <- seq(0, 315, by = 45)
+emm_curve <- lapply(phase_vals, function(ph) {
+  em <- emmeans(fit.sincos, ~ numStims_ord,
+    at = list(sin_phase = sin(ph*pi/180), cos_phase = cos(ph*pi/180),
+              betaLabels = "0", baselineMag_c = 0))
+  df <- as.data.frame(em)
+  df$phase_deg <- ph
+  df
+})
+emm_curve_df <- do.call(rbind, emm_curve)
+
+p4 <- ggplot(emm_curve_df, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+  theme_light(base_size = 14) +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) +
+  geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord), alpha = 0.15, color = NA) +
+  labs(x = "Delivered Phase (degrees)",
+       y = expression(paste("Predicted Magnitude (", mu, "V)")),
+       color = "Dose", fill = "Dose",
+       title = "Sin/Cos ANCOVA: Phase-Response Curve (emmeans +/- 95% CI)") +
+  scale_x_continuous(breaks = seq(0, 315, by = 45))
+ggsave(here("output_plots","betaStim_sincos_phase_curve.png"), plot = p4,
+       units = "in", width = 7, height = 4.5, dpi = 600)
+
+cat("\nAll 4 plots saved.\n")

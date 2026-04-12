@@ -70,6 +70,9 @@ stimLevelCombined =[];
 phaseDelivery = [];
 phaseDeliveryBinned = [];
 probeSampleVec = [];
+phaseVecLengthAll = [];  % circular vector length r ∈ [0,1] per trial (channel×condition)
+phaseCircStdAll   = [];  % circular standard deviation (degrees)
+phaseOmnibusPAll  = [];  % omnibus test p-value for uniformity
 %answer = input('use zscore or raw values? Enter "zscore" or "raw"  \n','s');
 
 % exclude playback for now
@@ -109,12 +112,39 @@ for sid = SIDS(1:end)
     badProbes = stimTable.stims(3,:)==0 & (isnan(stimTable.stims(4,:)) | isnan(stimTable.stims(6,:)));
     stimTable.stims(:, badProbes) = [];
 
-    % extract probe stim info (matching B_ExtractNeuralData_PP_reref.m)
-    probeStims = stimTable.stims(:, stimTable.stims(3,:)==0);
+    % extract probe stim info — must match B_ExtractNeuralData_PP_reref.m
+    % probe selector (pts) EXACTLY, otherwise probeSampleTimes is misaligned
+    % with dataForPPanalysis{chan}{ii}{1} and the probeSample column written
+    % to the output CSV is wrong.
+    %
+    % Extraction pipeline applies delayDelivery=+14 sample shift before its
+    % pts selector, then for d5cd55 only restricts to
+    %   shifted_sample > 4.5e6 & shifted_sample > 36536266
+    % In un-shifted coordinates (what we keep here, so that probeSample
+    % matches compute_burst_phase_precision.m output), the equivalent
+    % threshold is 36536266 - delayDelivery = 36536252. The 4.5e6 part is
+    % subsumed and redundant.
+    %
+    % Previously this block used the UN-filtered probe set for all
+    % subjects. That produced a 419-trial misalignment for d5cd55, where
+    % the first 1563 of 1982 unfiltered probe samples were paired with the
+    % 1563 filtered magnitudes from dataForPPanalysis. The d5cd55
+    % probeSample column in betaStim_outputTable_*.csv was therefore
+    % wrong, which silently broke the probeSample-based merge in R Model
+    % 5a-gf for d5cd55 only (other subjects were unaffected because they
+    % have no extraction-side pts filter).
+    delayDelivery_extract = 14;
+    if strcmp(sid, 'd5cd55')
+        d5cd55ProbeThresh = 36536266 - delayDelivery_extract;  % = 36536252 in un-shifted samples
+        pts_extract = stimTable.stims(3,:) == 0 & stimTable.stims(2,:) > d5cd55ProbeThresh;
+    else
+        pts_extract = stimTable.stims(3,:) == 0;
+    end
+    probeStims = stimTable.stims(:, pts_extract);
     probeBaselines = probeStims(5,:) > 2 * stimTable.fs;
     probeConditioned = probeStims(5,:) < 0.5 * stimTable.fs;
     probeKeeps = probeBaselines | probeConditioned;
-    probeSampleTimes = probeStims(2,:);  % sample number for each probe
+    probeSampleTimes = probeStims(2,:);  % un-shifted sample number per probe
     probeBurstTypes = stimTable.bursts(5, probeStims(4,:));  % burst type for each probe
     types_sorted = unique(stimTable.bursts(5, probeStims(4,:)));
 
@@ -155,8 +185,11 @@ for sid = SIDS(1:end)
     end
     
     peakPhaseVec = [];
+    peakLengthVec = [];
+    peakStdVec = [];
+    circularTestVec = [];
     for index = indices
-        
+
         if (strcmp(type,'m') || strcmp(type,'t')) && (index == 1)
             [peakPhase,peakStd,peakLength,circularTest,markerSize] =  phase_delivery_accuracy_forPP(r_square_pos,...
                 threshold,phase_at_0_pos,chans,desiredF(index),markerMin,markerMax,minData,maxData,markerToUse,testStatistic,f_pos,fThresholdMin,fThresholdMax);
@@ -168,6 +201,9 @@ for sid = SIDS(1:end)
                 threshold,phase_at_0,chans,desiredF,markerMin,markerMax,minData,maxData,markerToUse,testStatistic,f,fThresholdMin,fThresholdMax);
         end
         peakPhaseVec(index,:) = peakPhase;
+        peakLengthVec(index,:) = peakLength;
+        peakStdVec(index,:) = peakStd;
+        circularTestVec(index,:) = circularTest;
     end
     
     for chan = chans
@@ -240,6 +276,15 @@ for sid = SIDS(1:end)
                     phaseVecChosen = peakPhaseVec(correctIdx,goodEPs==chan);
                     phaseVec = repmat(phaseVecChosen,lengthType,1)';
                     phaseDelivery = [phaseDelivery phaseVec];
+
+                    % also propagate phase-quality metrics (vector length,
+                    % circular std, omnibus p-value) for this channel×condition
+                    phaseLenChosen = peakLengthVec(correctIdx,goodEPs==chan);
+                    phaseStdChosen = peakStdVec(correctIdx,goodEPs==chan);
+                    phasePChosen   = circularTestVec(correctIdx,goodEPs==chan);
+                    phaseVecLengthAll = [phaseVecLengthAll repmat(phaseLenChosen,lengthType,1)'];
+                    phaseCircStdAll   = [phaseCircStdAll   repmat(phaseStdChosen,lengthType,1)'];
+                    phaseOmnibusPAll  = [phaseOmnibusPAll  repmat(phasePChosen,lengthType,1)'];
                     
                     phaseBinned = phaseVec;
                     if any(phaseBinned > 180)
@@ -347,7 +392,12 @@ for sid = SIDS(1:end)
                         
                         phaseVec = repmat(nan,lengthType,1)';
                         phaseDelivery = [phaseDelivery phaseVec];
-                        
+
+                        % null condition: no meaningful phase quality metrics
+                        phaseVecLengthAll = [phaseVecLengthAll repmat(nan,lengthType,1)'];
+                        phaseCircStdAll   = [phaseCircStdAll   repmat(nan,lengthType,1)'];
+                        phaseOmnibusPAll  = [phaseOmnibusPAll  repmat(nan,lengthType,1)'];
+
                         phaseBinned = phaseVec;
                         phaseDeliveryBinned = [phaseDeliveryBinned phaseBinned];
                         
@@ -390,8 +440,8 @@ for sid = SIDS(1:end)
     end
 end
 %%
-tableBetaStim = table(totalMags',stimLevelCombined',categorical(numStims)',categorical(betaLabels)',categorical(betaSID)',categorical(chanLabels)',categorical(subjectNumVec'),categorical(phaseDeliveryBinned'),categorical(anovaType'),categorical(phaseDeliveryBinned45'),probeSampleVec'...
-    ,'VariableNames',{'magnitude','stimLevel','numStims','betaLabels','sid','channel','subjectNum','phaseClass','setToDeliverPhase','phaseDeliveryBinned45','probeSample'});
+tableBetaStim = table(totalMags',stimLevelCombined',categorical(numStims)',categorical(betaLabels)',categorical(betaSID)',categorical(chanLabels)',categorical(subjectNumVec'),categorical(phaseDeliveryBinned'),phaseDelivery',categorical(anovaType'),categorical(phaseDeliveryBinned45'),probeSampleVec',phaseVecLengthAll',phaseCircStdAll',phaseOmnibusPAll'...
+    ,'VariableNames',{'magnitude','stimLevel','numStims','betaLabels','sid','channel','subjectNum','phaseClass','phaseDeg','setToDeliverPhase','phaseDeliveryBinned45','probeSample','phaseVecLength','phaseCircStd','phaseOmnibusP'});
 % group stats
 
 statarray = grpstats(tableBetaStim,{'sid','numStims','channel','phaseClass'},{'mean','sem'},...

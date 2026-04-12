@@ -26,6 +26,9 @@ savePlot = 0
 figWidth = 8
 figHeight = 6
 
+# Print HTML tab_model() summaries? Off by default (opens RStudio Viewer).
+showTabModel = FALSE
+
 # channel 55 on subject 6 (beta channel, subjectNum=6, encoded as 6*100+55=655)
 chanInt = 55
 chanInt1 = paste0(6, chanInt)
@@ -107,7 +110,7 @@ emm_cond
 emm_dose <- emmeans(fit.lm, pairwise ~ numStims | setToDeliverPhase)
 emm_dose
 
-tab_model(fit.lm)
+if (showTabModel) tab_model(fit.lm)
 
 # ------------------------------------------------------------------------
 # Effect sizes (Cohen's d) via emmeans::eff_size

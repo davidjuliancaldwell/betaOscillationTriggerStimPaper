@@ -11,17 +11,49 @@ library('glmm')
 library("lme4")
 library('multcomp')
 library('plyr')
+library('dplyr')
 library('here')
 library('lmerTest')
 library('sjPlot')
 library('emmeans')
 library('wesanderson')
+library(car)
 
 rootDir = here()
 
-savePlot = 0
-figWidth = 8 
-figHeight = 6 
+savePlot = 1
+figWidth = 8
+figHeight = 6
+
+# Print HTML tab_model() summaries? Off by default (opens RStudio Viewer).
+showTabModel = FALSE
+
+# ------------------------------------------------------------------------
+# Good-fit / burst-quality filters for the 0b5a2e CL-vs-PB paired analysis
+# (dataCL_gf / dataPB_gf below and all downstream scatter / permutation /
+# per-channel plots). All filters are applied conjunctively (AND) on each
+# probe's preceding CL burst. PB probes inherit their matched CL burst's
+# metrics (PB was asynchronous, so its own phase fits are uninterpretable).
+#
+# Defaults match Model 5a-gf in betaStim_R_script.R:
+#   nGoodBeta >= 1, no other burst-quality constraints.
+# Set any filter to 0 / Inf to disable.
+# ------------------------------------------------------------------------
+minGoodBetaPerBurst_clpb   <- 1     # min R^2>0.7 beta (12-20 Hz) stims per burst
+minBurstVecLength_clpb     <- 0.5   # min circular vector length of good fits in burst (0-1)
+maxBurstCircStd_clpb       <- Inf   # max circular std of good fits in burst (degrees)
+minGoodFitFrac_clpb        <- 0     # min nGoodBeta / nCondStims ratio (0-1)
+minNCondStimsPerBurst_clpb <- 0     # min total conditioning stims in burst
+
+# Channel-level phase-quality filter (analog of minPhaseVecLength_gf2 in
+# betaStim_R_script.R). Drops entire (channel × setToDeliverPhase) cells
+# from the clpb analysis if the CL session's pooled phase circular vector
+# length was below this threshold — i.e., the channel's local beta was
+# not tightly phase-locked during CL targeting, so the "phase condition"
+# label is meaningless. Applied BEFORE the paired merge, based on CL's
+# phaseVecLength (PB's own r is uninterpretable — asynchronous delivery).
+# Set 0 to disable. Default 0.2 matches Model 5a-gf2 in the main script.
+minPhaseVecLength_clpb <- 0.2
 
 chanInt = 14
 chanInt1 = paste0(7,chanInt)
@@ -116,7 +148,7 @@ emm_s.t <- emmeans(fit.lm, pairwise ~ sid | numStims)
 emm_s.t <- emmeans(fit.lm, pairwise ~ numStims | sid)
 
 anova(fit.lm)
-tab_model(fit.lm)
+if (showTabModel) tab_model(fit.lm)
 
 summary(glht(fit.lm,linfct=mcp(sid="Tukey")))
 summary(glht(fit.lm,linfct=mcp(numStims="Tukey")))
@@ -389,4 +421,1193 @@ ggsave(here("output_plots","betaStim_perm_dose_ch14.png"), plot = p_perm_dose,
        units = "in", width = figWidth, height = figHeight, dpi = 600)
 ggsave(here("output_plots","betaStim_perm_dose_ch14.eps"), plot = p_perm_dose,
        units = "in", width = figWidth, height = figHeight, dpi = 600, device = cairo_ps)
+}
+
+data$phaseDeg <- as.numeric(as.character(data$phaseDeg))
+data$phase_rad <- data$phaseDeg * pi / 180
+data$sin_phase <- sin(data$phase_rad)
+data$cos_phase <- cos(data$phase_rad)
+data$phaseDeg_round <- round(data$phaseDeg, 1)
+
+# ========================================================================
+# 0b5a2e (CL) vs 0b5a2ePlayBack (PB): MATCHED probe comparison
+# ========================================================================
+cat("\n========== 0b5a2e: Matched CL vs PB ==========\n")
+
+dataCL_raw <- data[data$sid == "0b5a2e", ]
+dataPB_raw <- data[data$sid == "0b5a2ePlayBack", ]
+dataCL_raw$channel_raw <- as.factor(as.numeric(as.character(dataCL_raw$channel)) %% 100)
+dataPB_raw$channel_raw <- as.factor(as.numeric(as.character(dataPB_raw$channel)) %% 100)
+
+dataCL_raw <- dataCL_raw[order(dataCL_raw$channel_raw, dataCL_raw$probeSample), ]
+dataCL_raw$probeIdx <- unlist(tapply(dataCL_raw$probeSample, dataCL_raw$channel_raw,
+  function(x) seq_along(x)))
+dataPB_raw <- dataPB_raw[order(dataPB_raw$channel_raw, dataPB_raw$probeSample), ]
+dataPB_raw$probeIdx <- unlist(tapply(dataPB_raw$probeSample, dataPB_raw$channel_raw,
+  function(x) seq_along(x)))
+
+cl_precision <- read.csv(here("data", "output_table", "0b5a2e_burst_phase_precision.csv"))
+cl_precision$channelEncoded <- as.factor(cl_precision$channelEncoded)
+# Pull in all burst-quality columns we may filter on. goodFitFrac is derived
+# (nGoodBeta / nCondStims) rather than stored.
+dataCL_raw <- merge(dataCL_raw,
+  cl_precision[, c("probeSample", "channelEncoded", "nGoodBeta", "nCondStims",
+                   "burstVecLength", "burstCircStd")],
+  by.x = c("probeSample", "channel"), by.y = c("probeSample", "channelEncoded"),
+  all.x = TRUE)
+dataCL_raw$goodFitFrac <- ifelse(is.na(dataCL_raw$nCondStims) | dataCL_raw$nCondStims == 0,
+                                 NA, dataCL_raw$nGoodBeta / dataCL_raw$nCondStims)
+
+# Propagate the CL burst metrics to matched PB probes (PB's own fits are
+# uninterpretable because delivery was asynchronous).
+cl_filter <- dataCL_raw[, c("channel_raw", "probeIdx", "nGoodBeta", "nCondStims",
+                            "burstVecLength", "burstCircStd", "goodFitFrac")]
+names(cl_filter)[3:7] <- c("nGoodBeta_CL", "nCondStims_CL",
+                           "burstVecLength_CL", "burstCircStd_CL", "goodFitFrac_CL")
+dataPB_raw <- merge(dataPB_raw, cl_filter, by = c("channel_raw", "probeIdx"), all.x = TRUE)
+
+# Exact sign-flip permutation: enumerate all 2^n ± sign vectors and return
+# the observed statistic, the complete null distribution, and the exact
+# two-sided p-value. Use when n <= 20 (2^20 ≈ 10^6 configurations is the
+# practical limit for an in-memory matrix). For larger n, use Monte Carlo.
+#
+# Rationale: for small-n paired/aggregated tests (e.g., 8 channels, 13-16
+# channel × condition cells), Monte Carlo with 10,000 draws just resamples
+# the same 2^n configurations many times over. Enumerating gives an exact,
+# reproducible p-value with no Monte Carlo error.
+#
+# Fast path: when stat_fn is base `mean`, use a single matrix multiply
+# (sign_grid %*% x) / n to compute all 2^n means at once. For other
+# statistics (e.g., median) fall back to row-wise apply().
+exact_signflip <- function(x, stat_fn = mean) {
+  n <- length(x)
+  if (n < 2) stop("exact_signflip: need at least 2 units")
+  if (n > 20) {
+    stop(sprintf("exact_signflip: n=%d too large for enumeration (2^n = %d); use Monte Carlo",
+                 n, 2^n))
+  }
+  obs <- stat_fn(x)
+  sign_grid <- as.matrix(expand.grid(rep(list(c(-1, 1)), n)))
+  if (identical(stat_fn, mean)) {
+    perm_stats <- as.numeric(sign_grid %*% x) / n
+  } else {
+    perm_stats <- apply(sign_grid, 1, function(s) stat_fn(s * x))
+  }
+  list(
+    obs = obs,
+    perm_stats = perm_stats,
+    p_two_sided = mean(abs(perm_stats) >= abs(obs)),
+    n_perms = length(perm_stats)
+  )
+}
+
+# Conjunctive filter using the configurable thresholds at the top of the
+# script. apply_burst_filters keeps each row only if every ACTIVE filter
+# passes (NAs fail, since a missing precision row means the probe wasn't
+# scored and we can't verify its burst quality).
+apply_burst_filters <- function(df, ng_col, bvl_col, bcs_col, gff_col, ncs_col) {
+  keep <- !is.na(df[[ng_col]]) & df[[ng_col]] >= minGoodBetaPerBurst_clpb
+  if (minBurstVecLength_clpb > 0) {
+    keep <- keep & !is.na(df[[bvl_col]]) & df[[bvl_col]] >= minBurstVecLength_clpb
+  }
+  if (is.finite(maxBurstCircStd_clpb)) {
+    keep <- keep & !is.na(df[[bcs_col]]) & df[[bcs_col]] <= maxBurstCircStd_clpb
+  }
+  if (minGoodFitFrac_clpb > 0) {
+    keep <- keep & !is.na(df[[gff_col]]) & df[[gff_col]] >= minGoodFitFrac_clpb
+  }
+  if (minNCondStimsPerBurst_clpb > 0) {
+    keep <- keep & !is.na(df[[ncs_col]]) & df[[ncs_col]] >= minNCondStimsPerBurst_clpb
+  }
+  df[keep, ]
+}
+
+dataCL_gf <- apply_burst_filters(dataCL_raw, "nGoodBeta", "burstVecLength",
+                                 "burstCircStd", "goodFitFrac", "nCondStims")
+dataPB_gf <- apply_burst_filters(dataPB_raw, "nGoodBeta_CL", "burstVecLength_CL",
+                                 "burstCircStd_CL", "goodFitFrac_CL", "nCondStims_CL")
+
+cat(sprintf("clpb burst filters: nGoodBeta>=%d, burstVecLength>=%.2f, burstCircStd<=%s, goodFitFrac>=%.2f, nCondStims>=%d\n",
+    minGoodBetaPerBurst_clpb, minBurstVecLength_clpb,
+    ifelse(is.finite(maxBurstCircStd_clpb), sprintf("%.1f", maxBurstCircStd_clpb), "Inf"),
+    minGoodFitFrac_clpb, minNCondStimsPerBurst_clpb))
+cat(sprintf("CL burst-filtered: %d of %d (%.0f%%)\n",
+    nrow(dataCL_gf), nrow(dataCL_raw), 100*nrow(dataCL_gf)/nrow(dataCL_raw)))
+cat(sprintf("PB burst-filtered: %d of %d (%.0f%%)\n",
+    nrow(dataPB_gf), nrow(dataPB_raw), 100*nrow(dataPB_gf)/nrow(dataPB_raw)))
+
+# Channel-level phase-quality filter: drop whole (channel × setToDeliverPhase)
+# cells whose CL-session pooled phaseVecLength is below threshold. Applied
+# symmetrically to both CL and PB via cell-key matching so pair alignment
+# is preserved. PB's own phaseVecLength is NOT used (asynchronous delivery
+# makes it uninterpretable).
+if (minPhaseVecLength_clpb > 0) {
+  cl_keep_cells <- unique(dataCL_raw[!is.na(dataCL_raw$phaseVecLength) &
+    dataCL_raw$phaseVecLength >= minPhaseVecLength_clpb,
+    c("channel_raw", "setToDeliverPhase")])
+  keep_key <- paste(cl_keep_cells$channel_raw, cl_keep_cells$setToDeliverPhase, sep = "__")
+  cl_key_vec <- paste(dataCL_gf$channel_raw, dataCL_gf$setToDeliverPhase, sep = "__")
+  pb_key_vec <- paste(dataPB_gf$channel_raw, dataPB_gf$setToDeliverPhase, sep = "__")
+  n_before_cl <- nrow(dataCL_gf)
+  n_before_pb <- nrow(dataPB_gf)
+  dataCL_gf <- dataCL_gf[cl_key_vec %in% keep_key, ]
+  dataPB_gf <- dataPB_gf[pb_key_vec %in% keep_key, ]
+  cat(sprintf("Channel phaseVecLength >= %.2f (CL-based): CL %d->%d, PB %d->%d (kept %d cells)\n",
+      minPhaseVecLength_clpb, n_before_cl, nrow(dataCL_gf),
+      n_before_pb, nrow(dataPB_gf), length(keep_key)))
+}
+
+# Each condition uses its OWN measured phase (not CL phase for both).
+# CL phase = where stims were intentionally targeted.
+# PB phase = where stims accidentally landed (asynchronous delivery).
+# If phase effect is real, CL should show modulation; PB should not,
+# because PB phases are random relative to the oscillation.
+
+dataCL_gf <- dataCL_gf[dataCL_gf$magnitude > 25 & dataCL_gf$magnitude < 1500, ]
+dataPB_gf <- dataPB_gf[dataPB_gf$magnitude > 25 & dataPB_gf$magnitude < 1500, ]
+
+dataCL_gf$condition <- "CL"
+dataPB_gf$condition <- "PB"
+common_cols <- intersect(names(dataCL_gf), names(dataPB_gf))
+dataBoth <- rbind(dataCL_gf[, common_cols], dataPB_gf[, common_cols])
+dataBoth$condition <- factor(dataBoth$condition, levels = c("PB", "CL"))
+dataBoth_NB <- dataBoth[dataBoth$numStims != "Null" & dataBoth$numStims != "Base", ]
+
+summaryMatched <- ddply(dataBoth_NB, .(condition, channel_raw, phaseDeg_round, numStims),
+  summarize, magnitude = median(magnitude),
+  sin_phase = first(sin_phase), cos_phase = first(cos_phase))
+
+# baselines from UNFILTERED data — baseline probes have nGoodBeta=0
+# (no conditioning stims), so good-fit filter would remove them all
+dataCL_base <- dataCL_raw[dataCL_raw$numStims == "Base" & dataCL_raw$magnitude > 25 & dataCL_raw$magnitude < 1500, ]
+dataPB_base <- dataPB_raw[dataPB_raw$numStims == "Base" & dataPB_raw$magnitude > 25 & dataPB_raw$magnitude < 1500, ]
+dataCL_base$condition <- "CL"; dataCL_base$channel_raw <- as.factor(as.numeric(as.character(dataCL_base$channel)) %% 100)
+dataPB_base$condition <- "PB"; dataPB_base$channel_raw <- as.factor(as.numeric(as.character(dataPB_base$channel)) %% 100)
+baseMatched <- rbind(
+  ddply(dataCL_base, .(condition, channel_raw), summarize, baselineMag = median(magnitude)),
+  ddply(dataPB_base, .(condition, channel_raw), summarize, baselineMag = median(magnitude)))
+summaryMatched <- merge(summaryMatched, baseMatched, by = c("condition", "channel_raw"))
+summaryMatched$baselineMag_c <- summaryMatched$baselineMag - mean(summaryMatched$baselineMag)
+summaryMatched$numStims_ord <- ordered(summaryMatched$numStims,
+  levels = c("[1,2]", "[3,4]", "[5,inf)"))
+
+cat(sprintf("\nMatched summary: %d obs, %d channels, CL=%d, PB=%d\n",
+    nrow(summaryMatched), length(unique(summaryMatched$channel_raw)),
+    sum(summaryMatched$condition == "CL"), sum(summaryMatched$condition == "PB")))
+
+# Each condition uses its own measured phase. condition ref = PB.
+# sin_phase/cos_phase = phase effect at PB (accidental phases — should be null).
+# conditionCL:sin_phase = CL-specific phase effect BEYOND PB.
+# No dose:condition (assumes same average dose-response in both sessions).
+cat("\n--- Combined CL+PB model (each condition's own phase) ---\n")
+
+fit.clpb = lmerTest::lmer(
+  magnitude ~ numStims_ord * (sin_phase + cos_phase) +
+              condition * (sin_phase + cos_phase) +
+              baselineMag_c +
+  (1 | channel_raw),
+  data = summaryMatched,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("Singular:", isSingular(fit.clpb), "\n")
+print(summary(fit.clpb))
+cat("\nType III ANOVA:\n")
+print(anova(fit.clpb))
+
+# coefficient names: check actual names from the model
+cat("\nCoefficient names:", paste(names(fixef(fit.clpb)), collapse=", "), "\n")
+cnames <- names(fixef(fit.clpb))
+# find the condition:phase interaction terms
+cond_sin <- cnames[grepl("condition.*sin_phase|sin_phase.*condition", cnames)]
+cond_cos <- cnames[grepl("condition.*cos_phase|cos_phase.*condition", cnames)]
+cat("\nWald: CL-specific phase effect beyond PB:\n")
+print(car::linearHypothesis(fit.clpb,
+  c(paste0(cond_sin, " = 0"), paste0(cond_cos, " = 0"))))
+
+cat("\nWald: phase at PB reference (should be ns if asynchronous):\n")
+print(car::linearHypothesis(fit.clpb, c("sin_phase = 0", "cos_phase = 0")))
+
+phase_vals_ctrl <- seq(0, 315, by = 45)
+emm_curves <- lapply(c("CL", "PB"), function(cond) {
+  do.call(rbind, lapply(phase_vals_ctrl, function(ph) {
+    em <- emmeans(fit.clpb, ~ numStims_ord,
+      at = list(sin_phase = sin(ph*pi/180), cos_phase = cos(ph*pi/180),
+                condition = cond, baselineMag_c = 0))
+    df <- as.data.frame(em)
+    df$phase_deg <- ph; df$condition <- cond; df
+  }))
+})
+emm_ctrl_df <- do.call(rbind, emm_curves)
+
+p_clpb <- ggplot(emm_ctrl_df, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+  theme_light(base_size = 14) + facet_wrap(~ condition) +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) +
+  geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord), alpha = 0.15, color = NA) +
+  labs(x = "Delivered Phase (degrees)",
+       y = expression(paste("Predicted Magnitude (", mu, "V)")),
+       color = "Dose", fill = "Dose",
+       title = "CL vs PB: Phase-Response (matched, ANCOVA, CL phase + good-fit)") +
+  scale_x_continuous(breaks = seq(0, 315, by = 90))
+p_clpb
+if(savePlot){
+  ggsave(here("output_plots","betaStim_clpb_matched_phase_curve.png"), plot = p_clpb,
+         units = "in", width = 10, height = 4.5, dpi = 600)
+}
+
+# ========================================================================
+# 0b5a2e CL vs PB: SENSITIVITY — per-burst phase, each condition's own
+# ========================================================================
+# Phase = circular mean of burstCircMean from good-fit bursts within each
+# summary cell. CL uses CL's burstCircMean, PB uses PB's burstCircMean.
+# PB's per-burst phase = where stims actually landed (accidental phases).
+cat("\n--- CL vs PB sensitivity: per-burst phase (each condition's own) ---\n")
+
+# CL per-burst phase (already have precision data)
+cl_burst_cols <- cl_precision[, c("probeSample", "channelEncoded", "burstCircMean")]
+cl_burst_cols$channelEncoded <- as.factor(cl_burst_cols$channelEncoded)
+dataCL_gf_burst <- merge(dataCL_gf, cl_burst_cols,
+  by.x = c("probeSample", "channel"), by.y = c("probeSample", "channelEncoded"), all.x = TRUE)
+dataCL_gf_burst$sin_phase_burst <- sin(dataCL_gf_burst$burstCircMean * pi / 180)
+dataCL_gf_burst$cos_phase_burst <- cos(dataCL_gf_burst$burstCircMean * pi / 180)
+
+# PB per-burst phase from PB's own precision data
+pb_precision <- read.csv(here("data", "output_table", "0b5a2ePlayback_burst_phase_precision.csv"))
+pb_precision$channelEncoded <- as.factor(pb_precision$channelEncoded)
+# PB probes need to match by probeIdx (not probeSample — different sessions)
+# assign probeIdx to PB precision data
+pb_precision <- pb_precision[order(pb_precision$channelEncoded, pb_precision$probeSample), ]
+pb_precision$probeIdx <- unlist(tapply(pb_precision$probeSample, pb_precision$channelEncoded,
+  function(x) seq_along(x)))
+pb_precision$channel_raw <- as.factor(as.numeric(as.character(pb_precision$channelEncoded)) %% 100)
+
+dataPB_gf_burst <- merge(dataPB_gf,
+  pb_precision[, c("channel_raw", "probeIdx", "burstCircMean")],
+  by = c("channel_raw", "probeIdx"), all.x = TRUE)
+dataPB_gf_burst$sin_phase_burst <- sin(dataPB_gf_burst$burstCircMean * pi / 180)
+dataPB_gf_burst$cos_phase_burst <- cos(dataPB_gf_burst$burstCircMean * pi / 180)
+
+# summary: group by (channel_raw, phaseDeg_round, numStims) per condition
+# CL uses CL's phaseDeg_round; PB uses PB's own phaseDeg_round
+summCL_burst <- plyr::ddply(
+  dataCL_gf_burst[dataCL_gf_burst$numStims != "Null" & dataCL_gf_burst$numStims != "Base", ],
+  .(channel_raw, phaseDeg_round, numStims), summarize,
+  magnitude = median(magnitude),
+  sin_phase = mean(sin_phase_burst, na.rm = TRUE),
+  cos_phase = mean(cos_phase_burst, na.rm = TRUE))
+summCL_burst$condition <- "CL"
+
+summPB_burst <- plyr::ddply(
+  dataPB_gf_burst[dataPB_gf_burst$numStims != "Null" & dataPB_gf_burst$numStims != "Base", ],
+  .(channel_raw, phaseDeg_round, numStims), summarize,
+  magnitude = median(magnitude),
+  sin_phase = mean(sin_phase_burst, na.rm = TRUE),
+  cos_phase = mean(cos_phase_burst, na.rm = TRUE))
+summPB_burst$condition <- "PB"
+
+summBurst <- rbind(summCL_burst, summPB_burst)
+summBurst$condition <- factor(summBurst$condition, levels = c("PB", "CL"))
+summBurst <- merge(summBurst, baseMatched, by = c("condition", "channel_raw"))
+summBurst$baselineMag_c <- summBurst$baselineMag - mean(summBurst$baselineMag)
+summBurst$numStims_ord <- ordered(summBurst$numStims, levels = c("[1,2]", "[3,4]", "[5,inf)"))
+
+cat(sprintf("Per-burst phase summary: %d obs, CL=%d, PB=%d\n",
+    nrow(summBurst), sum(summBurst$condition == "CL"), sum(summBurst$condition == "PB")))
+
+fit.clpb.burst = lmerTest::lmer(
+  magnitude ~ numStims_ord * (sin_phase + cos_phase) +
+              condition * (sin_phase + cos_phase) +
+              baselineMag_c +
+  (1 | channel_raw),
+  data = summBurst,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("Singular:", isSingular(fit.clpb.burst), "\n")
+print(summary(fit.clpb.burst))
+cat("\nType III ANOVA:\n")
+print(anova(fit.clpb.burst))
+
+cnames_burst <- names(fixef(fit.clpb.burst))
+cb_sin <- cnames_burst[grepl("condition.*sin_phase|sin_phase.*condition", cnames_burst)]
+cb_cos <- cnames_burst[grepl("condition.*cos_phase|cos_phase.*condition", cnames_burst)]
+cat("\nWald: CL-specific phase (per-burst) beyond PB:\n")
+print(car::linearHypothesis(fit.clpb.burst,
+  c(paste0(cb_sin, " = 0"), paste0(cb_cos, " = 0"))))
+
+emm_burst_curves <- lapply(c("CL", "PB"), function(cond) {
+  do.call(rbind, lapply(phase_vals_ctrl, function(ph) {
+    em <- emmeans(fit.clpb.burst, ~ numStims_ord,
+      at = list(sin_phase = sin(ph*pi/180), cos_phase = cos(ph*pi/180),
+                condition = cond, baselineMag_c = 0))
+    df <- as.data.frame(em)
+    df$phase_deg <- ph; df$condition <- cond; df
+  }))
+})
+emm_burst_df <- do.call(rbind, emm_burst_curves)
+
+p_clpb_burst <- ggplot(emm_burst_df, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+  theme_light(base_size = 14) + facet_wrap(~ condition) +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) +
+  geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord), alpha = 0.15, color = NA) +
+  labs(x = "Delivered Phase (degrees)",
+       y = expression(paste("Predicted Magnitude (", mu, "V)")),
+       color = "Dose", fill = "Dose",
+       title = "CL vs PB: Per-burst Phase (each condition's own)") +
+  scale_x_continuous(breaks = seq(0, 315, by = 90))
+p_clpb_burst
+if(savePlot){
+  ggsave(here("output_plots","betaStim_clpb_burst_phase_curve.png"), plot = p_clpb_burst,
+         units = "in", width = 10, height = 4.5, dpi = 600)
+}
+
+# ========================================================================
+# Paired probe-level: CL - PB differences by dose and phase
+# ========================================================================
+# For each matched probe pair (same channel_raw, same probeIdx):
+#   1. Normalize each by its own session's channel baseline
+#   2. diff = normalized_CL - normalized_PB
+#   3. Sign-flip permutation test per dose: is mean diff != 0?
+#   4. Plot diff vs CL per-burst phase (burstCircMean) at each dose
+cat("\n========== Paired probe-level: CL - PB differences ==========\n")
+
+baseCL_chan <- plyr::ddply(dataCL_raw[dataCL_raw$numStims == "Base" &
+  dataCL_raw$magnitude > 25 & dataCL_raw$magnitude < 1500, ],
+  .(channel_raw), summarize, baseCL = median(magnitude))
+basePB_chan <- plyr::ddply(dataPB_raw[dataPB_raw$numStims == "Base" &
+  dataPB_raw$magnitude > 25 & dataPB_raw$magnitude < 1500, ],
+  .(channel_raw), summarize, basePB = median(magnitude))
+
+# CL trials with per-burst phase from precision data
+dataCL_paired <- merge(dataCL_gf,
+  cl_precision[, c("probeSample", "channelEncoded", "burstCircMean")],
+  by.x = c("probeSample", "channel"), by.y = c("probeSample", "channelEncoded"), all.x = TRUE)
+# Carry phaseVecLength (channel-level r) and setToDeliverPhase (intended
+# target) forward so the forest-plot labels can show both alongside the
+# measured phase.
+dataCL_paired <- dataCL_paired[, c("channel_raw", "probeIdx", "magnitude", "numStims",
+  "burstCircMean", "phaseDeg_round", "phaseVecLength", "setToDeliverPhase")]
+names(dataCL_paired)[3] <- "mag_CL"
+names(dataCL_paired)[5] <- "cl_burst_phase"
+
+# PB trials (magnitude only — phase comes from CL for x-axis)
+dataPB_paired <- dataPB_gf[dataPB_gf$magnitude > 25 & dataPB_gf$magnitude < 1500,
+  c("channel_raw", "probeIdx", "magnitude")]
+names(dataPB_paired)[3] <- "mag_PB"
+
+# merge matched pairs
+paired <- merge(dataCL_paired, dataPB_paired, by = c("channel_raw", "probeIdx"))
+paired <- merge(paired, baseCL_chan, by = "channel_raw")
+paired <- merge(paired, basePB_chan, by = "channel_raw")
+
+# baseline-normalize each session, then difference
+paired$norm_CL <- paired$mag_CL - paired$baseCL
+paired$norm_PB <- paired$mag_PB - paired$basePB
+paired$diff <- paired$norm_CL - paired$norm_PB
+
+paired <- paired[paired$numStims != "Base" & paired$numStims != "Null", ]
+paired <- paired[!is.na(paired$cl_burst_phase), ]  # need per-burst phase for x-axis
+
+cat(sprintf("Matched pairs with per-burst phase: %d\n", nrow(paired)))
+
+# --- Channel x condition aggregated sign-flip permutation ---
+# Aggregate to (channel x phaseDeg_round) means to avoid pseudoreplication
+# AND keep the two target conditions (90 vs 270) separate. 0b5a2e targets
+# both phases, so each channel has two conditions with different delivered
+# phases. Collapsing across conditions averages ~90 and ~270 to ~180.
+# With 8 channels x 2 conditions = up to 16 units per dose.
+# Holm correction across 3 dose-level tests.
+set.seed(42)
+# nPerm already defined above (line 213)
+dose_levels_paired <- c("[1,2]", "[3,4]", "[5,inf)")
+
+chan_cond_means <- plyr::ddply(paired, .(channel_raw, phaseDeg_round, numStims), summarize,
+  mean_diff = mean(diff), median_diff = median(diff),
+  cl_cond_phase = mean(cl_burst_phase, na.rm = TRUE),
+  n_probes = length(diff))
+
+# Exact sign-flip enumeration. n = 13-16 channel-condition cells per dose
+# after filters (2^n in {8192, 65536}), so a full enumeration is fast and
+# gives a reproducible p-value with no Monte Carlo error.
+perm_chan <- data.frame(numStims = character(), nUnits = integer(),
+  obs_mean = numeric(), perm_p = numeric(), stringsAsFactors = FALSE)
+
+for (dose in dose_levels_paired) {
+  dSub <- chan_cond_means[chan_cond_means$numStims == dose, ]
+  ef <- exact_signflip(dSub$mean_diff, stat_fn = mean)
+  perm_chan <- rbind(perm_chan,
+    data.frame(numStims = dose, nUnits = length(dSub$mean_diff),
+               obs_mean = round(ef$obs, 2),
+               perm_p = round(ef$p_two_sided, 4)))
+}
+perm_chan$perm_p_holm <- p.adjust(perm_chan$perm_p, method = "holm")
+
+cat("\nChannel x condition sign-flip permutation (Holm-corrected):\n")
+print(perm_chan)
+
+# --- Per channel x condition sign-flip tests ---
+# Each (channel, phase condition) tested separately at each dose.
+# Uses median as test statistic. Reported descriptively.
+cat("\n--- Per channel x condition sign-flip tests ---\n")
+perm_list <- list(); idx <- 0L
+
+for (ch in sort(unique(paired$channel_raw))) {
+  for (phrd in sort(unique(paired$phaseDeg_round[paired$channel_raw == ch]))) {
+    for (dose in dose_levels_paired) {
+      dSub <- paired[paired$channel_raw == ch & paired$phaseDeg_round == phrd &
+                     paired$numStims == dose, ]
+      if (nrow(dSub) < 5) next
+      obs_med <- median(dSub$diff)
+      n <- nrow(dSub)
+      perm_meds <- replicate(nPerm, {
+        signs <- sample(c(-1, 1), n, replace = TRUE)
+        median(dSub$diff * signs)
+      })
+      idx <- idx + 1L
+      perm_list[[idx]] <- data.frame(channel_raw = as.character(ch), phaseDeg_round = phrd,
+                   numStims = dose, n_probes = n,
+                   obs_median_diff = round(obs_med, 1),
+                   perm_p = mean(abs(perm_meds) >= abs(obs_med)),
+                   cl_phase = round(mean(dSub$cl_burst_phase, na.rm = TRUE), 1),
+                   phaseVecLength = round(dSub$phaseVecLength[1], 2),
+                   setToDeliverPhase = as.character(dSub$setToDeliverPhase[1]))
+    }
+  }
+}
+perm_perchan <- do.call(rbind, perm_list)
+
+cat(sprintf("Per channel x condition tests: %d cells with >= 5 probes\n", nrow(perm_perchan)))
+print(perm_perchan[order(perm_perchan$numStims, perm_perchan$cl_phase), ])
+
+cat("\nUnits with CL > PB (median diff > 0) per dose:\n")
+for (dose in dose_levels_paired) {
+  sub <- perm_perchan[perm_perchan$numStims == dose, ]
+  cat(sprintf("  %s: %d/%d positive (%.0f%%), sig at p<0.05: %d\n",
+      dose, sum(sub$obs_median_diff > 0), nrow(sub),
+      100 * mean(sub$obs_median_diff > 0), sum(sub$perm_p < 0.05)))
+}
+
+# --- Dot plot + loess: diff vs CL per-burst phase, faceted by dose ---
+paired$numStims <- factor(paired$numStims, levels = dose_levels_paired)
+
+p_paired_dots <- ggplot(paired, aes(x = cl_burst_phase, y = diff)) +
+  theme_light(base_size = 14) +
+  facet_wrap(~ numStims, ncol = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(alpha = 0.3, size = 1) +
+  geom_smooth(method = "loess", se = TRUE, color = "red", linewidth = 0.8) +
+  labs(x = "CL Per-Burst Delivered Phase (degrees)",
+       y = expression(paste(Delta, " Baseline-Normalized: CL - PB (", mu, "V)")),
+       title = "Paired Probe Differences vs CL Burst Phase by Dose") +
+  scale_x_continuous(breaks = seq(0, 315, by = 90))
+p_paired_dots
+
+if(savePlot){
+  ggsave(here("output_plots","betaStim_clpb_paired_diff_vs_phase.png"), plot = p_paired_dots,
+         units = "in", width = 10, height = 4, dpi = 600)
+}
+
+# --- Density of differences per dose ---
+p_paired_density <- ggplot(paired, aes(x = diff)) +
+  theme_light(base_size = 14) +
+  facet_wrap(~ numStims, ncol = 3) +
+  geom_density(fill = "steelblue", alpha = 0.4) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(data = data.frame(numStims = factor(perm_chan$numStims, levels = dose_levels_paired),
+                                obs_mean = perm_chan$obs_mean),
+             aes(xintercept = obs_mean), color = "red", linewidth = 0.8) +
+  labs(x = expression(paste(Delta, " Baseline-Normalized: CL - PB (", mu, "V)")),
+       y = "Density",
+       title = "Distribution of Paired Differences (red = observed mean)")
+p_paired_density
+
+if(savePlot){
+  ggsave(here("output_plots","betaStim_clpb_paired_diff_density.png"), plot = p_paired_density,
+         units = "in", width = 10, height = 4, dpi = 600)
+}
+
+# --- Per channel x condition: histogram + density, faceted by dose ---
+paired$chan_cond_label <- paste0("Ch ", paired$channel_raw, " (", paired$phaseDeg_round, " deg)")
+chan_cond_order <- unique(paired[order(paired$phaseDeg_round), "chan_cond_label"])
+paired$chan_cond_label <- factor(paired$chan_cond_label, levels = chan_cond_order)
+
+perm_perchan$chan_cond_label <- paste0("Ch ", perm_perchan$channel_raw,
+  " (", perm_perchan$phaseDeg_round, " deg)")
+perm_perchan$chan_cond_label <- factor(perm_perchan$chan_cond_label, levels = chan_cond_order)
+perm_perchan$numStims_f <- factor(perm_perchan$numStims, levels = dose_levels_paired)
+perm_perchan$p_label <- ifelse(perm_perchan$perm_p < 0.001, "p<0.001",
+  sprintf("p=%.3f", perm_perchan$perm_p))
+
+p_perchan <- ggplot(paired, aes(x = diff)) +
+  theme_light(base_size = 9) +
+  facet_grid(chan_cond_label ~ numStims, scales = "free_y") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_histogram(aes(y = after_stat(density)), bins = 25, fill = "steelblue", alpha = 0.4) +
+  geom_density(color = "darkblue", linewidth = 0.4) +
+  geom_vline(data = perm_perchan, aes(xintercept = obs_median_diff),
+             color = "red", linewidth = 0.5) +
+  geom_text(data = perm_perchan, aes(label = p_label, x = Inf, y = Inf),
+            hjust = 1.1, vjust = 1.5, size = 2, color = "red") +
+  labs(x = expression(paste(Delta, " CL - PB (", mu, "V)")),
+       y = "Density",
+       title = "Per Channel x Condition: CL-PB Differences by Dose") +
+  coord_cartesian(xlim = c(-500, 500))
+p_perchan
+
+if(savePlot){
+  ggsave(here("output_plots","betaStim_clpb_perchan_diff.png"), plot = p_perchan,
+         units = "in", width = 10, height = 16, dpi = 600)
+}
+
+# --- Scatter: median diff vs CL phase at [5,inf) ---
+# One dot per (channel x condition). Shows phase-response of CL advantage.
+# Use channel-level condition phase (phaseDeg_round) for x-axis, not per-burst
+# cl_phase. phaseDeg_round is the stable circular mean; per-burst phases are
+# noisy and can compress two well-separated conditions toward the middle.
+perm_5inf <- perm_perchan[perm_perchan$numStims == "[5,inf)", ]
+perm_5inf$sig <- perm_5inf$perm_p < 0.05
+
+p_phase_diff <- ggplot(perm_5inf, aes(x = phaseDeg_round, y = obs_median_diff)) +
+  theme_light(base_size = 14) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_smooth(method = "loess", se = TRUE, color = "grey70", linewidth = 0.5) +
+  geom_point(aes(color = sig), size = 4) +
+  geom_text(aes(label = channel_raw), vjust = -1, size = 3) +
+  scale_color_manual(values = c("FALSE" = "grey60", "TRUE" = "red"),
+                     labels = c("ns", "p<0.05"), name = "") +
+  labs(x = "CL Delivered Phase (degrees)",
+       y = expression(paste("Median CL - PB Difference (", mu, "V)")),
+       title = "Phase-Response of CL Advantage at [5,inf) Dose") +
+  scale_x_continuous(breaks = seq(0, 315, by = 45))
+p_phase_diff
+
+if(savePlot){
+  ggsave(here("output_plots","betaStim_clpb_phase_response_5inf.png"), plot = p_phase_diff,
+         units = "in", width = 7, height = 4.5, dpi = 600)
+}
+
+# ========================================================================
+# ALL-BURSTS version: same analysis without good-fit filter
+# ========================================================================
+# Includes ALL matched probes (not just nGoodBeta > 0). Uses channel-level
+# phase (phaseDeg_round) for grouping and x-axis. Tests whether the phase-
+# response pattern is visible even without restricting to good fits.
+cat("\n========== All-bursts paired analysis (no good-fit filter) ==========\n")
+
+# build paired data from ALL CL and PB trials (no nGoodBeta filter)
+dataCL_all <- dataCL_raw[dataCL_raw$magnitude > 25 & dataCL_raw$magnitude < 1500, ]
+dataPB_all <- dataPB_raw[dataPB_raw$magnitude > 25 & dataPB_raw$magnitude < 1500, ]
+
+dataCL_all_p <- dataCL_all[, c("channel_raw", "probeIdx", "magnitude", "numStims", "phaseDeg_round")]
+names(dataCL_all_p)[3] <- "mag_CL"
+dataPB_all_p <- dataPB_all[, c("channel_raw", "probeIdx", "magnitude")]
+names(dataPB_all_p)[3] <- "mag_PB"
+
+paired_all <- merge(dataCL_all_p, dataPB_all_p, by = c("channel_raw", "probeIdx"))
+paired_all <- merge(paired_all, baseCL_chan, by = "channel_raw")
+paired_all <- merge(paired_all, basePB_chan, by = "channel_raw")
+paired_all$norm_CL <- paired_all$mag_CL - paired_all$baseCL
+paired_all$norm_PB <- paired_all$mag_PB - paired_all$basePB
+paired_all$diff <- paired_all$norm_CL - paired_all$norm_PB
+paired_all <- paired_all[paired_all$numStims != "Base" & paired_all$numStims != "Null", ]
+
+cat(sprintf("All-bursts matched pairs: %d\n", nrow(paired_all)))
+
+# per channel x condition sign-flip tests
+perm_list_all <- list(); idx_all <- 0L
+for (ch in sort(unique(paired_all$channel_raw))) {
+  for (phrd in sort(unique(paired_all$phaseDeg_round[paired_all$channel_raw == ch]))) {
+    for (dose in dose_levels_paired) {
+      dSub <- paired_all[paired_all$channel_raw == ch & paired_all$phaseDeg_round == phrd &
+                         paired_all$numStims == dose, ]
+      if (nrow(dSub) < 5) next
+      obs_med <- median(dSub$diff)
+      n <- nrow(dSub)
+      perm_meds <- replicate(nPerm, {
+        signs <- sample(c(-1, 1), n, replace = TRUE)
+        median(dSub$diff * signs)
+      })
+      idx_all <- idx_all + 1L
+      perm_list_all[[idx_all]] <- data.frame(channel_raw = as.character(ch), phaseDeg_round = phrd,
+                   numStims = dose, n_probes = n,
+                   obs_median_diff = round(obs_med, 1),
+                   perm_p = mean(abs(perm_meds) >= abs(obs_med)))
+    }
+  }
+}
+perm_perchan_all <- do.call(rbind, perm_list_all)
+
+cat(sprintf("All-bursts per channel x condition: %d cells\n", nrow(perm_perchan_all)))
+
+# scatter: all-bursts vs good-fit at [5,inf)
+perm_5inf_all <- perm_perchan_all[perm_perchan_all$numStims == "[5,inf)", ]
+perm_5inf_all$sig <- perm_5inf_all$perm_p < 0.05
+perm_5inf_all$filter <- "All bursts"
+perm_5inf_gf <- perm_5inf
+perm_5inf_gf$filter <- "Good-fit only"
+perm_5inf_both <- rbind(
+  perm_5inf_all[, c("channel_raw", "phaseDeg_round", "obs_median_diff", "perm_p", "sig", "filter")],
+  perm_5inf_gf[, c("channel_raw", "phaseDeg_round", "obs_median_diff", "perm_p", "sig", "filter")])
+
+p_phase_both <- ggplot(perm_5inf_both, aes(x = phaseDeg_round, y = obs_median_diff)) +
+  theme_light(base_size = 14) +
+  facet_wrap(~ filter) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_smooth(method = "loess", se = TRUE, color = "grey70", linewidth = 0.5) +
+  geom_point(aes(color = sig), size = 4) +
+  geom_text(aes(label = channel_raw), vjust = -1, size = 3) +
+  scale_color_manual(values = c("FALSE" = "grey60", "TRUE" = "red"),
+                     labels = c("ns", "p<0.05"), name = "") +
+  labs(x = "CL Delivered Phase (degrees)",
+       y = expression(paste("Median CL - PB Difference (", mu, "V)")),
+       title = "Phase-Response at [5,inf): Good-fit vs All Bursts") +
+  scale_x_continuous(breaks = seq(0, 315, by = 45))
+p_phase_both
+
+if(savePlot){
+  ggsave(here("output_plots","betaStim_clpb_phase_response_5inf_comparison.png"), plot = p_phase_both,
+         units = "in", width = 12, height = 4.5, dpi = 600)
+}
+
+paired$numStims <- factor(paired$numStims, levels = dose_levels_paired)
+
+# ========================================================================
+# PRIMARY channel-level figure (Option A): 8 channels × 3 doses grid.
+# All channels on one image; facet_grid(channel_raw ~ numStims). Each dot
+# is a matched probe pair; blue horizontal line = per-cell median; dashed
+# line at 0. Replaces the eight separate betaStim_clpb_ch*_diff_vs_phase
+# images as the primary manuscript figure (those are retained as
+# supplementary below).
+# ========================================================================
+cell_medians <- plyr::ddply(paired, .(channel_raw, numStims), summarize,
+  median_diff = median(diff))
+
+p_clpb_grid <- ggplot(paired, aes(x = cl_burst_phase, y = diff)) +
+  theme_light(base_size = 11) +
+  facet_grid(channel_raw ~ numStims, scales = "fixed", switch = "y") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.4) +
+  geom_point(alpha = 0.35, size = 0.8, color = "grey30") +
+  geom_hline(data = cell_medians, aes(yintercept = median_diff),
+             color = "#d62728", linewidth = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.9,
+              color = "#1f77b4", linewidth = 0.5) +
+  labs(x = "CL Per-Burst Delivered Phase (degrees)",
+       y = expression(paste("Channel    ",
+                             Delta, " CL - PB (", mu, "V)")),
+       title = "0b5a2e: Matched CL - PB Differences by Channel × Dose",
+       subtitle = sprintf("%d probe pairs across 8 channels × 3 doses (red = per-cell median, blue = loess)",
+                          nrow(paired))) +
+  scale_x_continuous(breaks = c(0, 90, 180, 270), limits = c(0, 360)) +
+  theme(strip.text.y.left = element_text(angle = 0),
+        panel.spacing.x = unit(0.4, "lines"),
+        panel.spacing.y = unit(0.2, "lines"))
+
+if (savePlot) {
+  ggsave(here("output_plots", "betaStim_clpb_grid_ch_x_dose.png"),
+         plot = p_clpb_grid,
+         units = "in", width = 10, height = 12, dpi = 600)
+  ggsave(here("output_plots", "betaStim_clpb_grid_ch_x_dose.eps"),
+         plot = p_clpb_grid,
+         units = "in", width = 10, height = 12, dpi = 600, device = cairo_ps)
+}
+
+# ========================================================================
+# PRIMARY inferential figure (Option B): forest plot of per-cell effect
+# sizes with bootstrap 95% CIs, significance from the sign-flip perms.
+# One row per (channel × phase condition), three columns (doses). Shows
+# direction, magnitude, and significance in a single compact frame. Pairs
+# directly with the matched-pair permutation tests (perm_perchan) that
+# are the primary inferential claim for 0b5a2e.
+# ========================================================================
+set.seed(42)
+nBoot <- 2000
+perm_perchan$lo_ci <- NA_real_
+perm_perchan$hi_ci <- NA_real_
+for (i in seq_len(nrow(perm_perchan))) {
+  row <- perm_perchan[i, ]
+  d <- paired$diff[paired$channel_raw == row$channel_raw &
+                   paired$phaseDeg_round == row$phaseDeg_round &
+                   paired$numStims == row$numStims]
+  if (length(d) < 3) next
+  boot_meds <- replicate(nBoot, median(sample(d, length(d), replace = TRUE)))
+  perm_perchan$lo_ci[i] <- quantile(boot_meds, 0.025, names = FALSE)
+  perm_perchan$hi_ci[i] <- quantile(boot_meds, 0.975, names = FALSE)
+}
+
+perm_perchan$chan_cond_lbl <- sprintf("Ch %s @ %.0f° (r=%.2f) [tgt %s°]",
+                                       as.character(perm_perchan$channel_raw),
+                                       perm_perchan$phaseDeg_round,
+                                       perm_perchan$phaseVecLength,
+                                       perm_perchan$setToDeliverPhase)
+# Sort rows by measured delivered phase (0° at top, 360° at bottom),
+# channel ascending as secondary tie-breaker. rev() is needed because
+# ggplot's discrete y-axis draws the FIRST level at the bottom and the
+# LAST level at the top.
+row_order <- unique(perm_perchan[order(perm_perchan$phaseDeg_round,
+                                        perm_perchan$channel_raw),
+                                  "chan_cond_lbl"])
+perm_perchan$chan_cond_lbl <- factor(perm_perchan$chan_cond_lbl,
+                                      levels = rev(row_order))
+perm_perchan$sig <- !is.na(perm_perchan$perm_p) & perm_perchan$perm_p < 0.05
+perm_perchan$numStims_f <- factor(perm_perchan$numStims, levels = dose_levels_paired)
+
+# Beta reference channel for 0b5a2e is ch31. Override the sig-based color
+# scheme for those rows and highlight them with magenta. Also color the
+# matching y-axis tick labels magenta so the two cue each other visually.
+perm_perchan$color_cat <- ifelse(
+  as.character(perm_perchan$channel_raw) == "31", "beta (Ch 31)",
+  ifelse(perm_perchan$sig, "sig (p<0.05)", "ns"))
+perm_perchan$color_cat <- factor(perm_perchan$color_cat,
+  levels = c("ns", "sig (p<0.05)", "beta (Ch 31)"))
+
+# axis.text.y color vector: element_text accepts a vector of per-tick
+# colors, applied in factor-level order (which for our factor is
+# bottom-to-top = descending measured phase).
+y_label_colors <- ifelse(
+  grepl("^Ch 31 ", levels(perm_perchan$chan_cond_lbl)),
+  "magenta", "black")
+
+p_clpb_forest <- ggplot(perm_perchan,
+  aes(y = chan_cond_lbl, x = obs_median_diff, color = color_cat)) +
+  theme_light(base_size = 12) +
+  facet_wrap(~ numStims_f, nrow = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lo_ci, xmax = hi_ci), height = 0.25, linewidth = 0.6,
+                 na.rm = TRUE) +
+  geom_point(size = 2.8) +
+  scale_color_manual(values = c("ns" = "grey45",
+                                 "sig (p<0.05)" = "#d62728",
+                                 "beta (Ch 31)" = "magenta"),
+                     name = "") +
+  labs(x = expression(paste("Median CL - PB (", mu, "V)")),
+       y = NULL,
+       title = "0b5a2e: Paired CL - PB Effects by Channel × Phase × Dose",
+       subtitle = "Bootstrap 95% CIs (2000 resamples); p-values from matched-pair sign-flip perms") +
+  theme(strip.text = element_text(size = 12, face = "bold"),
+        axis.text.y = element_text(color = y_label_colors),
+        legend.position = "bottom")
+
+if (savePlot) {
+  ggsave(here("output_plots", "betaStim_clpb_forest_paired_effects.png"),
+         plot = p_clpb_forest,
+         units = "in", width = 11, height = 6, dpi = 600)
+  ggsave(here("output_plots", "betaStim_clpb_forest_paired_effects.eps"),
+         plot = p_clpb_forest,
+         units = "in", width = 11, height = 6, dpi = 600, device = cairo_ps)
+}
+
+# --- SUPPLEMENTARY: Per-channel individual probe scatter (eight images) ---
+# One image per channel, each with 3 dose subpanels. Retained for
+# supplementary detail; the primary channel-level figure is the grid
+# (betaStim_clpb_grid_ch_x_dose.png) immediately above.
+if(savePlot){
+  for (ch in sort(unique(paired$channel_raw))) {
+    ch_data <- paired[paired$channel_raw == ch, ]
+    if (nrow(ch_data) < 10) next
+
+    p_ch <- ggplot(ch_data, aes(x = cl_burst_phase, y = diff)) +
+      theme_light(base_size = 14) +
+      facet_wrap(~ numStims, ncol = 3) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+      geom_point(alpha = 0.4, size = 1.5) +
+      geom_smooth(method = "loess", se = TRUE, color = "red", linewidth = 0.8, span = 0.75) +
+      labs(x = "CL Per-Burst Delivered Phase (degrees)",
+           y = expression(paste(Delta, " CL - PB (", mu, "V)")),
+           title = sprintf("Channel %s: Paired CL-PB Differences by Dose", as.character(ch))) +
+      scale_x_continuous(breaks = seq(0, 315, by = 90))
+
+    ggsave(here("output_plots", sprintf("betaStim_clpb_ch%s_diff_vs_phase.png", as.character(ch))),
+           plot = p_ch, units = "in", width = 10, height = 4, dpi = 600)
+  }
+  cat(sprintf("Saved per-channel scatter plots for %d channels\n",
+      length(unique(paired$channel_raw))))
+}
+
+# ========================================================================
+# ecb43e: 3-condition (270, 90, random)
+# ========================================================================
+# 4 channels. condType ref = random. sin/cos at random = accidental phase
+# clustering (should be null). condTypetargeted:sin/cos = targeted-specific
+# phase effect beyond random.
+# Only 270 has baselines — used for all conditions.
+# Random: 4 channels x 1 phase x 3 dose = 12 cells
+# Targeted: 4 channels x 2 conditions (270+90) x 3 dose = 24 cells
+cat("\n========== ecb43e: targeted vs random ==========\n")
+
+dataEC <- data[data$sid == "ecb43e" & data$numStims != "Null", ]
+dataEC <- dataEC[dataEC$magnitude > 25 & dataEC$magnitude < 1500, ]
+dataEC$condType <- factor(ifelse(dataEC$setToDeliverPhase == "12345", "random", "targeted"),
+                          levels = c("random", "targeted"))
+
+dataEC_NB <- dataEC[dataEC$numStims != "Base", ]
+summaryEC <- ddply(dataEC_NB, .(condType, channel, phaseDeg_round, numStims),
+  summarize, magnitude = median(magnitude),
+  sin_phase = first(sin_phase), cos_phase = first(cos_phase))
+
+baseEC <- ddply(dataEC[dataEC$numStims == "Base", ], .(channel),
+  summarize, baselineMag = median(magnitude))
+summaryEC <- merge(summaryEC, baseEC, by = "channel")
+summaryEC$baselineMag_c <- summaryEC$baselineMag - mean(summaryEC$baselineMag)
+summaryEC$numStims_ord <- ordered(summaryEC$numStims,
+  levels = c("[1,2]", "[3,4]", "[5,inf)"))
+
+cat(sprintf("ecb43e summary: %d obs, %d channels, targeted=%d, random=%d\n",
+    nrow(summaryEC), length(unique(summaryEC$channel)),
+    sum(summaryEC$condType == "targeted"), sum(summaryEC$condType == "random")))
+
+cat("\n--- ecb43e combined model ---\n")
+
+fit.ec = lmerTest::lmer(
+  magnitude ~ numStims_ord * (sin_phase + cos_phase) +
+              condType * (sin_phase + cos_phase) +
+              baselineMag_c +
+  (1 | channel),
+  data = summaryEC,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000)))
+
+cat("Singular:", isSingular(fit.ec), "\n")
+print(summary(fit.ec))
+cat("\nType III ANOVA:\n")
+print(anova(fit.ec))
+
+cnames_ec <- names(fixef(fit.ec))
+ct_sin <- cnames_ec[grepl("condType.*sin_phase|sin_phase.*condType", cnames_ec)]
+ct_cos <- cnames_ec[grepl("condType.*cos_phase|cos_phase.*condType", cnames_ec)]
+cat("\nWald: targeted-specific phase effect beyond random:\n")
+print(car::linearHypothesis(fit.ec,
+  c(paste0(ct_sin, " = 0"), paste0(ct_cos, " = 0"))))
+
+cat("\nWald: phase at random reference (should be ns):\n")
+print(car::linearHypothesis(fit.ec, c("sin_phase = 0", "cos_phase = 0")))
+
+emm_ec_curves <- lapply(c("targeted", "random"), function(ct) {
+  do.call(rbind, lapply(phase_vals_ctrl, function(ph) {
+    em <- emmeans(fit.ec, ~ numStims_ord,
+      at = list(sin_phase = sin(ph*pi/180), cos_phase = cos(ph*pi/180),
+                condType = ct, baselineMag_c = 0))
+    df <- as.data.frame(em)
+    df$phase_deg <- ph; df$condType <- ct; df
+  }))
+})
+emm_ec_df <- do.call(rbind, emm_ec_curves)
+
+p_ec <- ggplot(emm_ec_df, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+  theme_light(base_size = 14) + facet_wrap(~ condType) +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) +
+  geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord), alpha = 0.15, color = NA) +
+  labs(x = "Delivered Phase (degrees)",
+       y = expression(paste("Predicted Magnitude (", mu, "V)")),
+       color = "Dose", fill = "Dose",
+       title = "ecb43e: Targeted vs Random Phase-Response by Dose") +
+  scale_x_continuous(breaks = seq(0, 315, by = 90))
+p_ec
+if(savePlot){
+  ggsave(here("output_plots","betaStim_ecb43e_phase_curve.png"), plot = p_ec,
+         units = "in", width = 10, height = 4.5, dpi = 600)
+}
+
+# ========================================================================
+# Percent modulation from baseline — all subjects, per good channel
+# ========================================================================
+cat("\n========== Percent modulation from baseline (all subjects) ==========\n")
+
+# use the full data (already filtered to magnitude 25-1500, no NaN)
+dataAll <- data[data$numStims != "Null", ]
+dataAll$numStims <- plyr::revalue(dataAll$numStims,
+  c("Test 1"="[1,2]","Test 2"="[3,4]","Test 3"="[5,inf)"))
+
+# baseline per (sid, channel) — pooled across conditions
+baseAll <- plyr::ddply(dataAll[dataAll$numStims == "Base", ], .(sid, channel),
+  summarize, baseMedian = median(magnitude))
+
+# median magnitude per (sid, channel, numStims) — pooled across phase conditions
+dataAll_NB <- dataAll[dataAll$numStims != "Base", ]
+doseAll <- plyr::ddply(dataAll_NB, .(sid, channel, numStims),
+  summarize, mag = median(magnitude))
+doseAll <- merge(doseAll, baseAll, by = c("sid", "channel"))
+doseAll$pctChange <- 100 * (doseAll$mag - doseAll$baseMedian) / doseAll$baseMedian
+
+# per-subject summary: mean across channels for each dose
+pct_subj <- plyr::ddply(doseAll, .(sid, numStims), summarize,
+  nChannels = length(channel),
+  meanBaseline = round(mean(baseMedian), 1),
+  meanMag = round(mean(mag), 1),
+  meanPctChange = round(mean(pctChange), 1),
+  medianPctChange = round(median(pctChange), 1))
+
+cat("\nPercent modulation per subject x dose:\n")
+print(pct_subj)
+
+# grand summary across subjects
+pct_grand <- plyr::ddply(doseAll, .(numStims), summarize,
+  nSubjects = length(unique(sid)),
+  nChannels = length(channel),
+  meanPctChange = round(mean(pctChange), 1),
+  sdPctChange = round(sd(pctChange), 1),
+  medianPctChange = round(median(pctChange), 1))
+
+cat("\nGrand mean percent modulation by dose:\n")
+print(pct_grand)
+
+# per-channel detail table
+pct_chan <- doseAll[, c("sid", "channel", "numStims", "baseMedian", "mag", "pctChange")]
+pct_chan$baseMedian <- round(pct_chan$baseMedian, 1)
+pct_chan$mag <- round(pct_chan$mag, 1)
+pct_chan$pctChange <- round(pct_chan$pctChange, 1)
+pct_chan <- pct_chan[order(pct_chan$sid, pct_chan$channel, pct_chan$numStims), ]
+
+# ========================================================================
+# Null-burst probes vs Baseline permutation test (within-subject control)
+# ------------------------------------------------------------------------
+# 0b5a2e has a "null burst" condition (sham bursts; nullType=3 in the
+# MATLAB extraction). Probes following null bursts should produce EPs
+# equivalent to true baselines (>2s-after-burst probes) — this is the
+# within-subject validity check for the null-burst control.
+#
+# The main script (betaStim_R_script.R) and this script both filter out
+# numStims == "Null" from their primary analyses; here we run the test
+# on the Null rows before that filter would apply. The script's top-of-
+# file loading deliberately keeps Null trials in `data` (the filter line
+# is commented out).
+#
+# Permutation: for each channel with enough trials (n >= 10 per group),
+# pool Null + Base probes, shuffle the labels, recompute the difference
+# of medians under permutation. Aggregated test uses sign-flip on
+# per-channel median differences (one unit per channel), matching the
+# clpb permutation approach above.
+#
+# Scope: 0b5a2e only for now. 0b5a2ePlayBack and ecb43e can be added by
+# extending null_burst_subjects below.
+# ========================================================================
+cat("\n========== Null vs Baseline permutation (0b5a2e) ==========\n")
+
+null_burst_subjects <- c("0b5a2e")
+set.seed(42)
+nPerm_nb <- 10000
+min_n_per_group <- 10
+
+nb_perchan_list <- list()
+nb_per_subj_list <- list()
+idx_nb <- 0L
+
+for (sid_val in null_burst_subjects) {
+  dN_all <- data[data$sid == sid_val &
+                 (data$numStims == "Null" | data$numStims == "Base") &
+                 !is.na(data$magnitude), ]
+  if (nrow(dN_all) == 0) {
+    cat(sprintf("%s: no Null/Base rows in CSV — skipping\n", sid_val))
+    next
+  }
+
+  chan_diffs <- list()
+  for (ch in sort(as.character(unique(dN_all$channel)))) {
+    dC <- dN_all[as.character(dN_all$channel) == ch, ]
+    mNull <- dC$magnitude[dC$numStims == "Null"]
+    mBase <- dC$magnitude[dC$numStims == "Base"]
+    if (length(mNull) < min_n_per_group || length(mBase) < min_n_per_group) next
+
+    obs_diff <- median(mNull) - median(mBase)
+
+    # Pooled two-sample permutation: shuffle the Null/Base labels among
+    # all trials in this channel, recompute the difference of medians.
+    all_mags <- c(mNull, mBase)
+    is_null <- c(rep(TRUE, length(mNull)), rep(FALSE, length(mBase)))
+    perm_diffs <- replicate(nPerm_nb, {
+      shuf <- sample(is_null)
+      median(all_mags[shuf]) - median(all_mags[!shuf])
+    })
+    perm_p <- mean(abs(perm_diffs) >= abs(obs_diff))
+
+    idx_nb <- idx_nb + 1L
+    nb_perchan_list[[idx_nb]] <- data.frame(
+      sid = sid_val,
+      channel = ch,
+      n_null = length(mNull),
+      n_base = length(mBase),
+      median_null = round(median(mNull), 1),
+      median_base = round(median(mBase), 1),
+      obs_diff = round(obs_diff, 1),
+      perm_p = round(perm_p, 4),
+      stringsAsFactors = FALSE)
+
+    chan_diffs[[ch]] <- obs_diff
+  }
+
+  # --- Aggregated test: exact sign-flip on per-channel median diffs ---
+  # Each channel contributes one observation (median Null - median Base).
+  # Under H0 (null bursts have no residual effect), the sign of each
+  # channel's diff is arbitrary, so sign-flip permutation is the correct
+  # null distribution. Test statistic = mean of channel diffs.
+  # With n = 8 channels, 2^8 = 256 sign configurations — enumerated exactly.
+  if (length(chan_diffs) >= 2) {
+    ch_vec <- unlist(chan_diffs)
+    ef_nb <- exact_signflip(ch_vec, stat_fn = mean)
+    nb_per_subj_list[[sid_val]] <- data.frame(
+      sid = sid_val,
+      nChannels = length(ch_vec),
+      mean_chan_diff = round(ef_nb$obs, 1),
+      perm_p_aggregate = round(ef_nb$p_two_sided, 4),
+      n_perms_exact = ef_nb$n_perms,
+      stringsAsFactors = FALSE)
+  }
+}
+
+nb_perchan <- if (length(nb_perchan_list) > 0)
+  do.call(rbind, nb_perchan_list) else data.frame()
+nb_per_subj <- if (length(nb_per_subj_list) > 0)
+  do.call(rbind, nb_per_subj_list) else data.frame()
+
+cat(sprintf("\nPer-channel Null vs Base (two-sided, n>=%d per group, %d perms):\n",
+    min_n_per_group, nPerm_nb))
+print(nb_perchan, row.names = FALSE)
+
+cat("\nAggregated Null vs Base per subject (EXACT sign-flip enumeration on per-channel median diffs):\n")
+print(nb_per_subj, row.names = FALSE)
+
+if (nrow(nb_perchan) > 0) {
+  cat(sprintf("\nCells with |Null - Base| perm p < 0.05: %d of %d\n",
+      sum(nb_perchan$perm_p < 0.05), nrow(nb_perchan)))
+}
+
+# ========================================================================
+# Prepare summary tables for export and write all as CSVs
+# ------------------------------------------------------------------------
+# CSVs are the machine-readable source of truth for the manuscript tables;
+# the .docx report below reuses the same frames built here. Naming
+# convention: betaStim_<scope>_<table>.csv in output_plots/.
+# ========================================================================
+
+# --- ANOVA tables (moved out of the docx block so CSVs can share them) ---
+anova_clpb_tbl <- as.data.frame(anova(fit.clpb))
+anova_clpb_tbl$Term <- rownames(anova_clpb_tbl)
+anova_clpb_tbl <- anova_clpb_tbl[, c("Term", "Sum Sq", "Mean Sq", "NumDF",
+                                      "DenDF", "F value", "Pr(>F)")]
+anova_clpb_tbl[, 2:7] <- round(anova_clpb_tbl[, 2:7], 4)
+
+anova_ec_tbl <- as.data.frame(anova(fit.ec))
+anova_ec_tbl$Term <- rownames(anova_ec_tbl)
+anova_ec_tbl <- anova_ec_tbl[, c("Term", "Sum Sq", "Mean Sq", "NumDF",
+                                  "DenDF", "F value", "Pr(>F)")]
+anova_ec_tbl[, 2:7] <- round(anova_ec_tbl[, 2:7], 4)
+
+# --- perm_perchan: drop plot-formatting columns for the export ---
+perm_perchan_export <- perm_perchan[, c(
+  "channel_raw", "setToDeliverPhase", "phaseDeg_round", "phaseVecLength",
+  "numStims", "n_probes", "obs_median_diff", "lo_ci", "hi_ci", "perm_p"
+)]
+perm_perchan_export <- perm_perchan_export[order(
+  perm_perchan_export$numStims,
+  as.numeric(as.character(perm_perchan_export$channel_raw)),
+  perm_perchan_export$phaseDeg_round), ]
+perm_perchan_export$lo_ci <- round(perm_perchan_export$lo_ci, 1)
+perm_perchan_export$hi_ci <- round(perm_perchan_export$hi_ci, 1)
+
+# --- CSV writer helper ---
+write_summary_csv <- function(df, name) {
+  path <- here("output_plots", paste0(name, ".csv"))
+  write.csv(df, path, row.names = FALSE)
+  cat(sprintf("Wrote %s (%d rows)\n", basename(path), nrow(df)))
+}
+
+cat("\n========== Writing summary / permutation CSVs ==========\n")
+
+# Percent modulation tables (were previously docx-only)
+write_summary_csv(pct_subj,  "betaStim_within_subject_pct_per_subject")
+write_summary_csv(pct_grand, "betaStim_within_subject_pct_grand")
+write_summary_csv(pct_chan,  "betaStim_within_subject_pct_per_channel")
+
+# ANOVA tables (were previously docx-only)
+write_summary_csv(anova_clpb_tbl, "betaStim_clpb_anova")
+write_summary_csv(anova_ec_tbl,   "betaStim_ecb43e_anova")
+
+# clpb sign-flip permutation tables (were previously console-only)
+write_summary_csv(perm_chan,           "betaStim_clpb_perm_chan_aggregate")
+write_summary_csv(perm_perchan_export, "betaStim_clpb_perm_perchan_bycell")
+
+# Null vs baseline permutation tables (were previously console-only)
+if (nrow(nb_perchan) > 0)  write_summary_csv(nb_perchan,  "betaStim_null_vs_base_perchan")
+if (nrow(nb_per_subj) > 0) write_summary_csv(nb_per_subj, "betaStim_null_vs_base_aggregate")
+
+# ========================================================================
+# Export all tables to .docx
+# ========================================================================
+if (require(officer) && require(flextable)) {
+  doc <- read_docx()
+  doc <- body_add_par(doc, "Within-Subject Phase Analysis", style = "heading 1")
+
+  # --- CL vs PB ANOVA ---
+  doc <- body_add_par(doc, "0b5a2e: CL vs PB Combined Model (ANOVA)", style = "heading 2")
+  ft <- flextable(anova_clpb_tbl) |> autofit() |>
+    set_caption("Type III ANOVA: CL+PB combined model. 96 obs, 8 channels. condition ref = PB.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- ecb43e ANOVA ---
+  doc <- body_add_par(doc, "ecb43e: Targeted vs Random Combined Model (ANOVA)", style = "heading 2")
+  ft <- flextable(anova_ec_tbl) |> autofit() |>
+    set_caption("Type III ANOVA: ecb43e combined model. 36 obs, 4 channels. condType ref = random.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- clpb channel-aggregated sign-flip (primary inferential claim) ---
+  doc <- body_add_par(doc,
+    "0b5a2e: CL vs PB Channel-Aggregated Sign-Flip (Exact, Holm-corrected)",
+    style = "heading 2")
+  ft <- flextable(perm_chan) |> autofit() |>
+    set_caption("Exact sign-flip permutation on per-channel-condition mean differences (2^n sign configurations enumerated); test statistic = mean of 13-16 channel x phase-condition mean diffs per dose. Holm step-down across 3 doses. Primary inferential test for the CL vs PB comparison at the aggregated level.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- clpb per-cell sign-flip ---
+  doc <- body_add_par(doc,
+    "0b5a2e: CL vs PB Per Channel x Phase x Dose (Sign-Flip + Bootstrap CIs)",
+    style = "heading 2")
+  ft <- flextable(perm_perchan_export) |> autofit() |>
+    set_caption("Per-cell sign-flip permutation on trial-level paired differences (10k Monte Carlo draws). Bootstrap 95% CIs from 2000 resamples on paired$diff. Supplementary detail to the channel-aggregated test above; rows sorted by dose then channel then delivered phase.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- Null vs Baseline per channel ---
+  if (nrow(nb_perchan) > 0) {
+    doc <- body_add_par(doc,
+      "0b5a2e: Null-Burst vs Baseline Per Channel (Two-Sample Permutation)",
+      style = "heading 2")
+    ft <- flextable(nb_perchan) |> autofit() |>
+      set_caption("Per-channel pooled two-sample permutation: shuffle Null/Base labels within channel without replacement (10k MC iterations), recompute median(Null) - median(Base). Within-subject validity check for the null-burst control condition.")
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+  }
+
+  # --- Null vs Baseline aggregated ---
+  if (nrow(nb_per_subj) > 0) {
+    doc <- body_add_par(doc,
+      "0b5a2e: Null-Burst vs Baseline Aggregated (Exact Sign-Flip)",
+      style = "heading 2")
+    ft <- flextable(nb_per_subj) |> autofit() |>
+      set_caption("Aggregated exact sign-flip on per-channel median differences (n=8 channels, 2^8 = 256 sign configurations enumerated). Non-significant mean chan diff indicates null-burst probes are statistically indistinguishable from baseline probes, validating the null-burst control.")
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+  }
+
+  # --- Percent modulation: per subject ---
+  doc <- body_add_par(doc, "Percent Modulation from Baseline (per subject)", style = "heading 2")
+  ft <- flextable(pct_subj) |> autofit() |>
+    set_caption("Mean percent change from baseline per subject. Baseline = median of Base trials per channel, pooled across conditions.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- Percent modulation: grand summary ---
+  doc <- body_add_par(doc, "Percent Modulation from Baseline (grand summary)", style = "heading 2")
+  ft <- flextable(pct_grand) |> autofit() |>
+    set_caption("Grand mean percent change across all subjects and channels.")
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- Percent modulation: per channel detail ---
+  doc <- body_add_par(doc, "Percent Modulation from Baseline (per channel)", style = "heading 2")
+  ft <- flextable(pct_chan) |> autofit() |>
+    set_caption("Percent change per channel per dose. baseMedian = channel baseline (uV), mag = conditioned median (uV).")
+  doc <- body_add_flextable(doc, ft)
+
+  docx_path <- here("output_plots", "betaStim_within_subject_tables.docx")
+  print(doc, target = docx_path)
+  cat(sprintf("\nSaved within-subject tables to: %s\n", docx_path))
 }

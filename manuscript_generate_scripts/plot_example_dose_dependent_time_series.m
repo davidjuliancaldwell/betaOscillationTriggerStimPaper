@@ -2,12 +2,12 @@ setup_environment
 
 %% additional options
 
-savePlot = 1;
+savePlot = 0;
 plotIt = 1;
-chanInt = 14;
+chanInt = 5;
 smoothPP = 1;
-rerefMode = 'median';
-idx = 7;
+rerefMode = 'raw';
+idx = 5;
 
 
 labelTotal = [];
@@ -18,20 +18,20 @@ awinsTotal = [];
 sid = SIDS{idx};
 
 switch(sid)
-    
+
     case 'd5cd55'
         stims = [54 62];
         rerefChans = [2:40];
         goods = sort([44 45 46 52 53 55 60 61 63]);
         betaChan = 53;
         bads = [1 49 58 59];
-        
+
         % have to set t_min and t_max for each subject
         %t_min = 0.004833;
         % t_min of 0.005 would find the really early ones
         t_min = 0.006;
         t_max = 0.06;
-        
+
     case 'c91479'
         stims = [55 56];
         betaChan = 64;
@@ -43,7 +43,7 @@ switch(sid)
     case '7dbdec'
         % rerefChans = [1:3 7 15 1:16 17:19 22:24 33:56 58:64]; how it
         % was for paper
-        
+
         rerefChans = [1:16 17:19 22:24 33:56 58:64]; % without doubling up
         stims = [11 12];
         chans = [4 5 14];
@@ -52,7 +52,7 @@ switch(sid)
         t_min = 0.007;
         t_max = 0.048;
         bads = [8 57];
-        
+
     case '9ab7ab'
         stims = [59 60];
         betaChan = 51;
@@ -61,23 +61,23 @@ switch(sid)
         t_min = 0.006;
         t_max = 0.06;
         bads = [1 9 10 35 43];
-        
+
     case '702d24'
         rerefChans = [1:4 6:12 15:22 24 25:27 33:40 41:43 45:51 53:58 62:64];
         betaChan = 5;
         stims = [13 14];
         goods = [ 5 ];
-        t_min = 0.008;
-        t_max = 0.046;
+        t_min = 0.003;  % changed from 0.008 (2026-04-09)
+        t_max = 0.025;  % changed from 0.046 (2026-04-09)
         bads = [23 27 28 29 30 32 44 52 60];
-        
+
     case 'ecb43e' % added DJC 7-23-2015
         rerefChans = [1:40 41:44 49:52];
         stims = [56 64];
         betaChan = 55;
         goods = sort([55 63 54 47 48]);
         bads = [57:64];
-        
+
         t_min = 0.006;
         t_max = 0.06;
     case '0b5a2e' % added DJC 7-23-2015
@@ -147,16 +147,16 @@ ZscoredDataForAnova = {};
 %% do referencing on list of channels
 
 for chan = rerefChans
-    
+
     %% load in ecog data for that channel
     fprintf('loading in ecog data for %s:\n',sid);
     fprintf('channel %d:\n',chan);
     tic;
-    
+
     grp = floor((chan-1)/16);
     ev = sprintf('ECO%d',grp+1);
     achan = chan - grp*16;
-    
+
     if achan==1 || achan == 2 || achan == 4 || achan == 6
         load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
         dataStruct = eval(ev);
@@ -165,11 +165,11 @@ for chan = rerefChans
     eco = 4*eco';
     efs = dataStruct.info.SamplingRateHz;
     toc;
-    
+
     fac = fs/efs;
-    
+
     %% process triggers
-    
+
     if (strcmp(sid, '8adc5c'))
         pts = stims(3,:)==0;
     elseif (strcmp(sid, 'd5cd55'))
@@ -193,15 +193,15 @@ for chan = rerefChans
     else
         error 'unknown sid';
     end
-    
+
     presamps = round(0.05*efs);
     postsamps = round(0.120*efs);
-    
+
     ptis = round(stims(2,pts)/fac);
-    
+
     t = (-presamps:postsamps)/efs;
-    
-    
+
+
     wins = squeeze(getEpochSignal(eco', ptis-presamps, ptis+postsamps+1));
     winsReref(:,:,chan) = wins;
 end
@@ -209,9 +209,11 @@ end
 switch(rerefMode)
     case 'mean'
         rerefQuant = mean(winsReref(:,:,rerefChans),3);
-        
+
     case 'median'
         rerefQuant = median(winsReref(:,:,rerefChans),3);
+    case 'raw'
+        rerefQuant = 0;
 end
 
 %% now do peak to peak
@@ -221,23 +223,23 @@ for chan = chanInt
     fprintf('loading in ecog data for %s:\n',sid);
     fprintf('channel %d:\n',chan);
     tic;
-    
+
     grp = floor((chan-1)/16);
     ev = sprintf('ECO%d',grp+1);
     achan = chan - grp*16;
-    
+
     load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
     dataStruct = eval(ev);
-    
+
     eco = dataStruct.data(:,achan);
     eco = 4*eco';
     efs = dataStruct.info.SamplingRateHz;
     toc;
-    
+
     fac = fs/efs;
-    
+
     %% process triggers
-    
+
     if (strcmp(sid, '8adc5c'))
         pts = stims(3,:)==0;
     elseif (strcmp(sid, 'd5cd55'))
@@ -258,33 +260,33 @@ for chan = chanInt
         pts = stims(3,:) == 0;
     elseif (strcmp(sid, '0b5a2ePlayback'))
         pts = stims(3,:) == 0;
-        
+
     else
         error 'unknown sid';
     end
-    
+
     presamps = round(0.05*efs);
     postsamps = round(0.120*efs);
-    
+
     ptis = round(stims(2,pts)/fac);
-    
+
     t = (-presamps:postsamps)/efs;
-    
+
     wins = squeeze(getEpochSignal(eco', ptis-presamps, ptis+postsamps+1));
     wins = wins - rerefQuant;
     pstims = stims(:,pts);
-    
+
     % considered a baseline if it's been at least N seconds since the last
     % burst ended
-    
+
     baselines = pstims(5,:) > 2 * fs;
-    
+
     if (sum(baselines) < 100)
         warning('N baselines = %d.', sum(baselines));
     end
-    
+
     types = unique(bursts(5,pstims(4,:)));
-    
+
     %DJC - modify suffix to list conditioning type
     suffix = arrayfun(@(x) num2str(x), types, 'uniformoutput', false);
     %
@@ -293,54 +295,54 @@ for chan = chanInt
     suffix{2} = 'Phase 2';
     suffix{3} = 'null condition';
     suffix{4} = 'Phase 3';
-    
+
     nullType = 2;
     maxIndex = min(length(types),2);
-    
+
     for typei = 1:maxIndex
         awins = wins-repmat(mean(wins(t<-0.005 & t>-0.05,:),1), [size(wins, 1), 1]);
-        
+
         probes = pstims(5,:) < .5*fs & bursts(5,pstims(4,:))==types(typei);
-        
+
         if (sum(probes) < 100)
             warning('N probes = %d.', sum(probes));
         end
-        
-        
+
+
         if (types(typei) == nullType)
             label = nan(1,length(bursts(4,pstims(4,:))));
             label(baselines) = 0;
             label(probes) = 1 ;
-            
+
         elseif (types(typei) ~= nullType)
             label = bursts(4,pstims(4,:));
             label(baselines) = 0;
             labelGroupStarts = [1 3 5];
             labelGroupEnds   = [labelGroupStarts(2:end) Inf];
-            
+
             for gIdx = 1:length(labelGroupStarts)
                 labeli = label >= labelGroupStarts(gIdx) & label < labelGroupEnds(gIdx);
                 label(labeli) = gIdx;
             end
-            
+
         end
-        
+
         keeps = probes | baselines;
         load('line_colormap.mat');
-        
+
         kwins = awins(:, keeps);
         klabel = label(keeps);
         ulabels = unique(klabel);
         colors = cm(round(linspace(1, size(cm, 1), length(ulabels))), :);
-        
+
         tBegin = t_min;
         tEnd = t_max;
-        
+
         labelTotal = [labelTotal label];
         keepsTotal = [keepsTotal keeps];
         awinsTotal = [awinsTotal awins];
     end
-    
+
     keepsTotal = logical(keepsTotal);
     %%
     figure
@@ -351,16 +353,16 @@ for chan = chanInt
     yl = ylim;
     yl(1) = min(-10, max(yl(1),-140*4));
     yl(2) = max(10, min(yl(2),100*4));
-    
+
     yl(1) = min(-10, max(yl(1),-340*4));
     yl(2) = max(10, min(yl(2),300*4));
-    
+
     ylim(yl);
-    
+
     xlim([-2.5 60])
     ylim([-300 300])
     highlight(gca, [0 t_min*1e3], [], [.5 .5 .5]) %this is the part that plots that stim window
-    
+
     %  vline(1e3*7/efs);
     vline(0);
     obj = scalebar;
@@ -368,7 +370,7 @@ for chan = chanInt
     obj.XUnit = 'ms';            %X-Unit, 'm'.
     obj.YLen = 200;
     obj.YUnit = '\muV';
-    
+
     obj.Position = [20,-130];
     obj.hTextX_Pos = [5,-30]; %move only the LABEL position
     obj.hTextY_Pos =  [30,-15];
@@ -377,22 +379,23 @@ for chan = chanInt
     obj.hLineX(2).LineWidth = 5;
     obj.hLineX(1).LineWidth = 5;
     obj.Border = 'LL';          %'LL'(default), 'LR', 'UL', 'UR'    if savePlot
-    
+
     set(gca,'xtick',[])
     set(gca,'ytick',[])
     %set(gca,'visible','off')
-    
-    for index = 0:max(labelTotal) 
+
+    for index = 0:max(labelTotal)
         awinsSelect = awinsTotal(:,(labelTotal == index)& keepsTotal);
         awinsSelectMean = mean (awinsSelect,2);
         [signalPP,pkLocs,trLocs] =  extract_PP_betaStim(awinsSelectMean,t,t_min,t_max,smoothPP);
     end
-    
-    %     SaveFig(folderPlots, sprintf(['EP-phase-%d-sid-%s-chan-%d'],typei,sid, chan,type,signalType), 'svg');
-    SaveFig(folderPlots, sprintf(['EP-example-time-series-sid-%s-chan-%d'],sid, chan), 'png','-r600');
-    SaveFig(folderPlots, sprintf(['EP-example-time-series-sid-%s-chan-%d'],sid, chan), 'eps','-r600');
-    
-    
+
+    if savePlot
+        %     SaveFig(folderPlots, sprintf(['EP-phase-%d-sid-%s-chan-%d'],typei,sid, chan,type,signalType), 'svg');
+        SaveFig(folderPlots, sprintf(['EP-example-time-series-sid-%s-chan-%d'],sid, chan), 'png','-r600');
+        SaveFig(folderPlots, sprintf(['EP-example-time-series-sid-%s-chan-%d'],sid, chan), 'eps','-r600');
+    end
+
     % end
 end
 

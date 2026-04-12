@@ -2,6 +2,61 @@
 
 ## Completed
 
+### Phase-label backport, Model 5 sin/cos, d5cd55 fix, bundled deps (2026-04-12)
+
+#### Phase-label swap fix backported to `phase_vs_peak.m`
+- `phase_vs_peak.m` had the same burst-type ↔ phase-variable swap as the 2026-04-06 fix in `multipleSubj_GLMM_script_PP.m`. For type 'm' subjects (c91479, 702d24, 0b5a2e, 0b5a2ePlayBack), `index=1` was paired with `phase_at_0_pos` (burst type 1 phases) but `dataForPPanalysis{chan}{1}` (burst type 0 EPs) — inverted.
+- Fix: replaced combined if-elseif with explicit per-type-per-index mapping via intermediate variables (`rsq_use`, `phase_use`, `f_use`, `target`). Added missing `type=='t' && index==4` branch for ecb43e random condition.
+- Verified empirically: c91479 ch64 dot positions swapped correctly after fix.
+- Output file naming now encodes active filters (e.g., `_r30`, `_r20_gf1`). Config block uses `exist(..., 'var')` checks so a wrapper script can pre-set filter values.
+- New output files: `phase_vs_peak_all_subj_median_r30.{png,eps}`, `phase_vs_peak_all_subj_median_r20_gf1.{png,eps}`, per-subject variants.
+
+#### Full pipeline phase-label consistency audit
+- Systematic trace of `stims(8)` → burst type → phase variable → CSV column → R analysis for all subjects and pipeline stages. All stages confirmed consistent. No remaining phase-label swap bugs.
+
+#### Model 5 (sin/cos continuous phase) added to `betaStim_R_script.R`
+- Three variants: 5a (channel-level phase, phaseVecLength ≥ 0.3, 78 obs, random dose slope), 5a-gf (good-fit trials, per-burst phase, 96 obs, intercepts only — random slope singular), 5a-gf2 (good-fit trials, channel-level phase, phaseVecLength ≥ 0.2, 102 obs, random dose slope).
+- Results: 5a Dose.L p=0.068 (trend), 5a-gf2 Dose.L p=0.049 (nominally significant). Phase main effects weakly estimated (cos_phase p~0.09-0.13). 5a-gf dose p=0.047 is anti-conservative (intercepts only).
+- Output CSV includes `phaseDeg`, `phaseVecLength`, `phaseCircStd`, `phaseOmnibusP` from MATLAB.
+- Sensitivity analysis at r ∈ {0, 0.1, 0.2, 0.3, 0.4} → `output_plots/betaStim_phase_quality_sensitivity.csv`.
+- Effect sizes use corrected `d_total` formula: `Var_int + E[x²]*Var_slope + Var_channel + Var_resid` where E[x²]=1/3 for `contr.poly(3)`.
+
+#### Critical d5cd55 probeSample alignment bug fixed
+- `multipleSubj_GLMM_script_PP.m` was reconstructing `probeStims` without applying d5cd55's time filter (`stims(2,:) > 36536266`), giving 1982 probes instead of 1563. Magnitudes/dose labels were correct; only `probeSample` was wrong (0% match with precision CSV before fix, 100% after).
+- Fix: reproduce extraction's pts selector in un-shifted coordinates (`stims(2,:) > 36536266 - delayDelivery`). Mirrored in `phase_vs_peak.m` for the good-fit filter path.
+- Impact: d5cd55 Model 5a-gf/5a-gf2 results changed (bad precision CSV merge); Models 3a/3c/3e/5a unaffected.
+
+#### Critical 702d24 extraction bug fixed
+- Three interrelated bugs caused 702d24 ch5 to produce nearly all-NaN extractions (11% valid → 72% valid after fix):
+  1. `framelen=171` too wide for 702d24's 21 ms window → `ppFramelen=91` via new 8th arg in `extract_PP_betaStim.m`
+  2. `t_min=3.8ms` not accounting for `delayDelivery=14` shift → `t_min=0.00323` for 702d24
+  3. `plot_EP_goodfit_by_phase.m` (new file) now applies `delayDelivery` shift to match pipeline
+- Regenerated `betaStim_outputTable_50_new_100_thresh.csv`.
+
+#### External dependencies bundled
+- Copied `CircStat2012a/` and `sgolayfilt_complete.m`/`savitzkyGolay.m` into `external_deps/`. `setup_environment.m` now uses `addpath(genpath(locationsDir))` only — no external paths needed.
+
+#### CL vs PB analysis expanded (`R_compare_control_cond.R`)
+- Burst-quality filter config block: `minGoodBetaPerBurst_clpb`, `minBurstVecLength_clpb`, `minPhaseVecLength_clpb = 0.2`. Filter removes 26% trials + 3 of 16 channel × condition cells.
+- Exact sign-flip permutations (replacing Monte Carlo) for small-n aggregated tests: n=8 (Null vs Base) and n=13–16 (clpb channel × condition). Deterministic, reproducible.
+- Null-burst vs baseline validity test: 0/8 channels significant; aggregated perm p=0.226. Null EPs indistinguishable from baseline.
+- New visualizations: 8×3 grid `betaStim_clpb_grid_ch_x_dose.{png,eps}`, forest plot `betaStim_clpb_forest_paired_effects.{png,eps}`, 8-phase dose plots (45° bins).
+- CSV outputs: `betaStim_clpb_perm_chan_aggregate.csv`, `betaStim_clpb_perm_perchan_bycell.csv`, `betaStim_null_vs_base_perchan.csv`, `betaStim_null_vs_base_aggregate.csv`, percent modulation CSVs.
+- Added to `.docx`: 4 new sign-flip permutation tables.
+
+#### Other bug fixes and cleanup
+- `compute_burst_phase_precision.m`: fixed `load()` overwriting `sid` argument; fixed playback phase file path (was loading CL's file).
+- `plotting_functions/SaveFig.m`: fixed Windows-only path logic to recognize Unix absolute paths.
+- `plotting_functions/plot_phase_cortex.m`: fixed legend icon sizes via `findobj` after `drawnow`.
+- `helper_functions/getSubjDir.m`: fixed hardcoded Windows backslashes → `fullfile()`.
+- `peak_extraction/C_PlotBrains_PP.m` + `phase_vs_peak.m`: removed spurious ch63 from ecb43e goodEPs (was silently filtered anyway).
+- `BETA_manuscript_bars_compare0b5a2e_PP.m`: trimmed dead-weight 6 unused SIDS/valueSet entries.
+- `showTabModel = FALSE` now consistently gated in `R_compare_control_cond.R` and `R_compare_subject_6_random.R`.
+- `R_burst_phase_analysis.R`: minor fix.
+- CLAUDE.md: trimmed from 525 to ~300 lines (removed development log/bug-fix histories, kept current-state facts).
+
+---
+
 ### Ordinal/numeric dose models + median consistency (2026-04-05)
 - Switched ALL analyses to use median: cell summaries, baseline computation (baseMean→baseMedian), permutation test statistics, plotting summaries
 - Added Model 3d (ordinal dose with polynomial contrasts):

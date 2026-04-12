@@ -55,9 +55,12 @@ stims(:, badsStim) = [];
 %% load phase data
 phaseFile = [sid '_phaseDelivery_allChans' modifierPhase '.mat'];
 if strcmp(sid, '0b5a2ePlayback')
-    phaseFile = ['0b5a2e_phaseDelivery_allChans' modifierPhase '.mat'];
+    % load the PlayBack phase file (capital B matches B_phaseCalc output)
+    phaseFile = ['0b5a2ePlayBack_phaseDelivery_allChans' modifierPhase '.mat'];
 end
+origSid = sid;  % preserve before load (phase .mat contains 'sid' that would overwrite)
 load(fullfile(folderData, 'phase_data', phaseFile));
+sid = origSid;
 
 %% build condition maps
 % Maps burst types to their phase data variables.

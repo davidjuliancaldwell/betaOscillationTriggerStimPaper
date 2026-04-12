@@ -5,6 +5,8 @@
 % David.J.Caldwell 8.26.2018
 %%
 
+setup_environment
+
 SIDS = {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'};
 valueSet = {{'s',180,1,[54 62],[1 49 58 59],53},...
     {'m',[0 180],2,[55 56],[2 3 31 57],64},...

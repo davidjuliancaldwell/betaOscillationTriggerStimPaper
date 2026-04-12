@@ -14,6 +14,7 @@ library('ggplot2')
 library('lme4')
 library('lmerTest')
 library('emmeans')
+library('here')
 
 sids_to_analyze <- c('d5cd55', 'c91479', '7dbdec', '9ab7ab', '702d24', 'ecb43e', '0b5a2e')
 
@@ -236,7 +237,7 @@ p1 <- ggplot(emm_df, aes(x = numStims, y = emmean, color = phaseDir, group = pha
        color = "Delivered Phase",
        title = "CEP Magnitude: 270 deg bin vs Others (all subjects)") +
   scale_color_hue(labels = c("Other phases", "270 deg (225-315)"))
-ggsave("output_plots/betaStim_burst_270bin_vs_other.png", plot = p1,
+ggsave(here("output_plots","betaStim_burst_270bin_vs_other.png"), plot = p1,
        units = "in", width = 6.5, height = 4.5, dpi = 600)
 
 high_all <- cond_beta[cond_beta$numStims == "[5,inf)", ]
@@ -248,7 +249,7 @@ p2 <- ggplot(high_all, aes(x = phaseError, y = magnitude)) +
   labs(x = "Phase Error (degrees from target)",
        y = expression(paste("Magnitude (", mu, "V)")),
        title = "Phase Error vs CEP Magnitude at [5,inf) by Subject")
-ggsave("output_plots/betaStim_phase_error_scatter.png", plot = p2,
+ggsave(here("output_plots","betaStim_phase_error_scatter.png"), plot = p2,
        units = "in", width = 10, height = 8, dpi = 600)
 
 cat("\nPlots saved.\n")
