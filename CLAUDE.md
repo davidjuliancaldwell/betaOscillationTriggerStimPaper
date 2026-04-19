@@ -87,11 +87,31 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
 
 ## Statistical Models
 
-`R_analysis_scripts/betaStim_R_script.R` contains five summary-level models (3a-3e), plus trial-level models (1, 2, 4) kept for reference. All summary models collapse to one **median** per (subject × channel × phaseClass × numStims) cell to eliminate pseudoreplication.
+### Primary models (for manuscript)
+
+**The primary inferential models are 5a and 5a-gf2** (continuous circular phase). They supersede Models 3a-3e (binary 90/270 phaseClass) for these reasons:
+
+1. **Phase is circular, not binary.** Models 3a-3e bin the channel-level circular mean into 90 or 270, which treats phase as a two-level factor and ignores the actual delivered angle. 5a/5a-gf2 decompose phase into `sin(phaseDeg) + cos(phaseDeg)`, using the full circular information (Fisher 1993).
+2. **Grouping by measured phase keeps distinct conditions separate.** Models 3a-3e collapse multiple measured phases into one bin per channel. 5a groups by `(sid, phaseDeg_round, numStims, channel)`, preserving both measured phases for multi-phase channels.
+3. **5a-gf2 adds phase-fit quality control.** Restricts to bursts where beta was actually present (≥1 conditioning stim with R² > 0.7 and 12-20 Hz), a scientifically motivated filter consistent with the "phase-triggered stimulation requires an ongoing oscillation" hypothesis.
+4. **Model 3 series retained as supporting/sensitivity analyses** — they produced the initial result but are now framed as robustness checks, not primary.
+
+Per-cell permutation tests (`R_compare_control_cond.R`, see "Within-subject analyses" below) are reported **alongside** the LMM: the LMM estimates the population-level average effect; the permutation tests describe how that effect is distributed across individual channels.
+
+### Primary: 5a and 5a-gf2 (continuous circular phase)
+
+See "Model 5" subsection below for full specification. Key points:
+- **5a**: channel-level phase, phaseVecLength ≥ 0.3, 78 obs, 19 channels. Dose.L p = 0.068 (trend).
+- **5a-gf2**: good-fit burst restriction + channel-level phase, phaseVecLength ≥ 0.2, 102 obs, 25 channels. Dose.L p = 0.049. Effect size 8.6 µV.
+
+### Supporting: Models 3a-3e (binary phaseClass, summary-level)
+
+Retained as sensitivity/robustness checks. All summary models collapse to one **median** per (subject × channel × phaseClass × numStims) cell to eliminate pseudoreplication.
 
 ```r
-# Model 3a: absDiff (baseline median pre-subtracted per channel).
-# Random intercepts only. Most powerful for dose (p=0.0002) but no random slopes.
+# Model 3a (sensitivity): absDiff (baseline median pre-subtracted per channel).
+# Random intercepts only. Strong dose effect (p=0.0002) but no random slopes.
+# Retained as a robustness check; primary inference is Models 5a / 5a-gf2.
 fit.absDiff = lmer(absDiff ~ numStims * phaseClass +
   (1|sid) + (1|channel), data=summaryNB)  # 120 obs
 
@@ -119,7 +139,8 @@ Key data structure notes:
 - `numStims` (dose) varies trial-to-trial within a channel — real trial-level predictor
 - `phaseClass` is a channel-level constant — the circular mean of phase-at-delivery, binned to 90/270
 - Channel IDs are unique per subject (subjectNum*100 + raw channel), so `(1|channel)` implicitly nests within subject
-- 6 subjects, 31 channels, 120 summary observations (no baseline) or 151 (with baseline)
+- Models 3a-3e: 7 subjects, 31 channels, 120 summary observations (no baseline) or 151 (with baseline). Grouping by (sid, channel, phaseClass, numStims).
+- Models 5a/5a-gf2: 7 subjects, 32 channels, 141 summary obs pre-filter (grouping by phaseDeg_round allows multiple measured phases per channel)
 - `doseNum` is a numeric encoding of the dose factor; `dose_linpoly` = `contr.poly(3)[,1]` is an equivalent linear rescaling used with ordinal models
 - None of the five primary models are singular
 
@@ -137,22 +158,25 @@ Model comparison (all on median, after phaseClass fix):
 Replaces binary `phaseClass` (90/270) with `sin(phase)` and `cos(phase)`. The output CSV includes `phaseDeg` (channel-level circular mean in degrees, from `circ_mean` of stims with R² > 0.7), plus quality metrics `phaseVecLength`, `phaseCircStd`, `phaseOmnibusP`. Groups by `(sid, phaseDeg_round, numStims, channel)` — keeps conditions with different measured phases separate. Before phase-quality filters: 141 obs. With default filters (`minPhaseVecLength_5a=0.3`): 78 obs.
 
 ```r
-# Model 5a (primary): Ordinal dose × sin/cos + betaLabels, ANCOVA.
+# Model 5a (PRIMARY): Ordinal dose × sin/cos + betaLabels, ANCOVA.
 # Channel-level phase. phaseVecLength >= 0.3. Non-singular.
 fit.sincos.ordinal = lmer(magnitude ~ numStims_ord * (sin_phase + cos_phase) +
   betaLabels + baselineMag_c +
   (1+dose_linpoly|sid) + (1|channel), data=summaryNB_m5)  # 78 obs (r>=0.3)
 
-# Model 5a-gf (secondary): Good beta fit restriction, per-burst phase.
+# Model 5a-gf (diagnostic): Good beta fit restriction, per-burst phase.
 # Groups by (sid, numStims, channel) — collapses across delivered phases.
 # Intercepts only — random dose slope singular at 96 obs.
-# Dose p is anti-conservative without the random slope.
+# Dose p is anti-conservative without the random slope. Sensitivity check only.
 fit.sincos.ordinal.gf = lmer(magnitude ~ numStims_ord * (sin_phase + cos_phase) +
   betaLabels + baselineMag_c +
   (1|sid) + (1|channel), data=summaryNB_gf)  # 96 obs
 
-# Model 5a-gf2 (preferred secondary): Good beta fit, channel-level phase.
+# Model 5a-gf2 (PRIMARY-complement): Good beta fit + channel-level phase.
 # phaseVecLength >= 0.2. Random dose slope non-singular.
+# Companion to 5a: adds a scientifically motivated quality filter
+# (beta actually present during conditioning) without losing the random-slope
+# design. Reported alongside 5a as the primary pair.
 fit.sincos.ordinal.gf2 = lmer(magnitude ~ numStims_ord * (sin_phase + cos_phase) +
   betaLabels + baselineMag_c +
   (1+dose_linpoly|sid) + (1|channel), data=summaryNB_gf2)  # 102 obs (r>=0.2)
@@ -184,11 +208,19 @@ Three phase quantities in play (NOT interchangeable):
 2. **`phaseDeg`/`phaseDeg_round`** — channel-level circular mean of sinfit phases. EP channels show spatial offsets up to ~180° from beta reference (expected physiology). Some channels show nearly identical phases for both target conditions — they cannot be treated as providing two distinct phase conditions.
 3. **`burstCircMean`/`cl_burst_phase`** — per-burst measured phase from `compute_burst_phase_precision.m` → `{sid}_burst_phase_precision.csv`
 
-For 0b5a2e CL vs PB: matched-pair permutation (sign-flip) is the primary inferential tool; mixed model is used for effect sizes. After `minPhaseVecLength_clpb = 0.2` filter (13 of 16 channel × condition cells kept), none of the aggregated sign-flip permutations clear Holm correction across 3 dose bins.
+For 0b5a2e CL vs PB: matched-pair permutation (sign-flip) is the primary inferential tool; mixed model is used for effect sizes. After `minPhaseVecLength_clpb = 0.2` filter (13 of 16 channel × condition cells kept), none of the aggregated sign-flip permutations clear Holm correction across 3 dose bins ([1,2] raw p=0.205 / Holm 0.614; [3,4] p=0.965 / 1.0; [5,inf) p=0.595 / 1.0). Combined CL+PB ANCOVA model: dose trend p=0.061; condition (CL vs PB) p=0.52; phase at PB p=0.77/0.42 (null as expected, asynchronous); CL-specific phase beyond PB p=0.73/0.76.
 
-**ecb43e targeted vs random**: 36 obs, severely underpowered. No phase modulation detected.
+**ecb43e targeted vs random**: 36 obs, 4 channels. Combined model shows significant dose effect (numStims_ord p=0.0125) but no phase modulation (sin_phase p=0.86, cos_phase p=0.53), no condType (targeted vs random) main effect (p=0.22), and no phase × condType interactions (p>0.45). Underpowered for phase comparison.
 
 **Percent modulation from baseline**: Grand mean [1,2]=1.3%, [3,4]=3.1%, [5,inf)=4.9%. Strongest responder: c91479 (14-19%).
+
+**Conditioned vs Baseline per-cell permutation** (added 2026-04-14): Companion to Model 5a-gf2. For each `(sid × channel × phaseDeg_round × dose)` cell, a two-sample label-shuffle permutation (median diff, 10k MC) tests whether conditioned probe magnitudes differ from channel-level baseline magnitudes. Bootstrap 95% CIs (2k resamples) provided for the forest plot. **Filters match 5a-gf2 exactly**: channel-level `phaseVecLength ≥ 0.2` AND good-fit burst restriction (`nGoodBeta ≥ 1`, i.e., each conditioned trial's preceding burst had ≥1 stim with R² > 0.7 and frequency 12-20 Hz). Per-cell sample-size minima: ≥10 baseline probes, ≥5 conditioned probes. Baselines are exempt from the good-fit filter (no preceding burst). Primary correction: **BH FDR within (subject × dose)** — channels are nested within subjects, so the correction family is one subject's cells at one dose. Pooled FDR reported as a diagnostic CSV column only (not plotted).
+
+Purpose: the LMM estimates the **average** dose effect; per-cell permutation describes how that average is **distributed** across channels. These answer different questions:
+- 5a/5a-gf2 (LMM): is there a population-level dose × phase effect?
+- Per-cell perm: in how many individual channels is the effect individually detectable?
+
+Results (101 cells, 7 subjects, with good-fit filter): good-fit filter retains ~46% of conditioned trials. Per-dose condensed summary (within-subject FDR, collapsed across subjects): [1,2] 5/34 uncorr, 4/34 FDR (11.8%); [3,4] 7/33 uncorr, 7/33 FDR (21.2%); [5,inf) 12/34 uncorr, 7/34 FDR (20.6%). Median effect grows with dose: 7.6 → 8.6 → 13.6 µV. Subject-level presence: 2 / 3 / 2 of 7 subjects with ≥1 FDR-sig cell at [1,2] / [3,4] / [5,inf). c91479 dominates (3-4/4 FDR-sig cells at every dose, median effect ~48 µV); 9ab7ab shows a dose gradient (1/4 → 2/4 → 3/4 cells); ecb43e has 1/5 at [3,4]. 0b5a2e's 13-cell FDR family is harsh — the good-fit filter makes its [5,inf) effect stronger (median 24 µV, 4 uncorrected-sig cells) but within-subject FDR still rejects at 13 tests. Phase results (from LMM): cos_phase is trend-level in both 5a (p=0.090) and 5a-gf2 (p=0.098); sin_phase non-significant; no dose × phase interactions (all p>0.23). Outputs in `output_plots/`: `betaStim_cond_vs_base_perchan.csv` (master, includes within-subject `perm_q` and pooled `perm_q_pooled` columns), `betaStim_cond_vs_base_per_subject.csv`, `betaStim_cond_vs_base_subject_presence.csv`, `betaStim_cond_vs_base_summary.csv` (per-dose condensed counts), `betaStim_cond_vs_base_pooled_summary.csv`, `betaStim_cond_vs_base_forest.png/.eps`. Forest plot sorts rows by measured phase (0° at top); beta-trigger channels highlighted with pink y-axis labels; dots colored by significance category (ns / p<0.05 uncorr / FDR q<0.05). All red cells are also uncorrected-significant by construction (BH q ≥ p always).
 
 **Null-burst validity test (0b5a2e)**: 0/8 channels p<0.05 uncorrected; aggregated perm p=0.226. Null-burst EPs are statistically indistinguishable from baseline, validating the null-burst control.
 
@@ -221,21 +253,27 @@ Models 3a-3e, 5a-5c: Shapiro-Wilk normality test, skewness/kurtosis, QQ plots (`
 
 `output_plots/betaStim_statistical_tables.docx` (from `betaStim_R_script.R`): residual diagnostics table, model comparison (AIC/BIC), ANOVA tables, EMM pairwise contrasts, Cohen's d effect sizes for models 3a, 3c, 3e, 5a.
 
-`output_plots/betaStim_within_subject_tables.docx` (from `R_compare_control_cond.R`): CL vs PB ANOVA, ecb43e ANOVA, sign-flip permutation tables (exact + MC), null-burst validity tables, percent modulation tables.
+`output_plots/betaStim_within_subject_tables.docx` (from `R_compare_control_cond.R`): CL vs PB ANOVA, ecb43e ANOVA, sign-flip permutation tables (exact + MC), null-burst validity tables, percent modulation tables, conditioned-vs-baseline per-cell permutation tables (across-subject summary, per-subject breakdown, pooled-FDR sensitivity).
 
-CSV outputs in `output_plots/`: `betaStim_clpb_perm_chan_aggregate.csv`, `betaStim_clpb_perm_perchan_bycell.csv`, `betaStim_null_vs_base_perchan.csv`, `betaStim_null_vs_base_aggregate.csv`, percent modulation CSVs.
+CSV outputs in `output_plots/`: `betaStim_clpb_perm_chan_aggregate.csv`, `betaStim_clpb_perm_perchan_bycell.csv`, `betaStim_null_vs_base_perchan.csv`, `betaStim_null_vs_base_aggregate.csv`, `betaStim_cond_vs_base_perchan.csv`, `betaStim_cond_vs_base_per_subject.csv`, `betaStim_cond_vs_base_subject_presence.csv`, `betaStim_cond_vs_base_summary.csv`, `betaStim_cond_vs_base_pooled_summary.csv`, percent modulation CSVs.
 
 ## Permutation test conventions
 
 **Sign-flip (paired/within-subject)**: Each unit contributes one paired difference; signs are independently exchangeable under H₀. For n ≤ 20 units: exact enumeration (2^n configurations, fast matrix-multiply path for mean statistic). For n > 20: Monte Carlo 10,000 draws. Used for CL vs PB probe pairs and channel-level Null vs Base comparisons.
 
-**Two-sample label shuffling**: Pool trials from both groups, shuffle labels without replacement, recompute difference of group medians. Used for unmatched within-channel tests (e.g., Null vs Base trial-level). Always Monte Carlo.
+**Two-sample label shuffling**: Pool trials from both groups, shuffle labels without replacement, recompute difference of group medians. Used for unmatched within-channel tests (Null vs Base trial-level, Conditioned vs Baseline per-cell). Always Monte Carlo.
 
-Holm step-down correction applied for clpb permutation tests across 3 dose bins.
+**Bootstrap 95% CIs**: Nonparametric resampling within each group (BCa not used; percentile intervals from 2,000 bootstrap resamples). Used to visualize per-cell effect uncertainty on forest plots. Complements the permutation p-value, which uses a different null hypothesis (exchangeability) than the bootstrap (observed distribution).
 
-| Test | Unit | n | Method |
-|------|------|---|--------|
-| Null vs Base aggregated (0b5a2e) | channel | 8 | Exact (2^8 = 256) |
-| clpb channel × condition aggregated | channel × phase cell | 13–16 per dose | Exact (2^13–2^16) |
-| Null vs Base per channel | trial | ~410 | MC 10k |
-| clpb per-cell sign-flip | probe pair | ~30–100 | MC 10k |
+**FDR correction strategies**:
+- **Holm step-down**: clpb aggregated tests across 3 dose bins.
+- **BH within (subject × dose)**: Conditioned vs Baseline per-cell. Family = one subject's cells at one dose. Respects the nested design (channels within subjects).
+- **BH pooled within dose**: Conditioned vs Baseline, reported as sensitivity alongside the within-subject FDR.
+
+| Test | Unit | n | Method | Correction |
+|------|------|---|--------|------------|
+| Null vs Base aggregated (0b5a2e) | channel | 8 | Exact sign-flip (2^8 = 256) | none |
+| clpb channel × condition aggregated | channel × phase cell | 13–16 per dose | Exact sign-flip (2^13–2^16) | Holm across 3 doses |
+| Null vs Base per channel | trial | ~410 | Two-sample MC 10k | descriptive |
+| clpb per-cell sign-flip | probe pair | ~30–100 | Sign-flip MC 10k | descriptive |
+| Conditioned vs Baseline per-cell | trial | ~50–200 cond vs ~40–60 base | Two-sample MC 10k | BH within (subj × dose); pooled within dose as sensitivity |

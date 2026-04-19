@@ -2,6 +2,43 @@
 
 ## Completed
 
+### Primary-model documentation + conditioned-vs-baseline per-cell permutation (2026-04-14)
+
+#### Documentation: 5a / 5a-gf2 established as primary
+- Updated `CLAUDE.md`, `statistical_audit.md`, `README.md` to make clear that **Model 5a** (channel-level phase, `phaseVecLength ≥ 0.3`) and **Model 5a-gf2** (good-fit burst restriction + channel-level phase, `phaseVecLength ≥ 0.2`) are the primary inferential models. Model 3 series (binary phaseClass) is retained as a sensitivity/robustness check but is no longer primary.
+- Rationale captured in statistical_audit.md Finding 23: phase is circular (binary binning loses information), grouping by measured phase keeps distinct conditions separate, 5a-gf2 adds a principled quality filter ("beta actually present during conditioning"), 5a/5a-gf2 reported together cover the analytic space.
+- `CLAUDE.md` code comments updated: Model 3a → "(sensitivity)"; 5a → "(PRIMARY)"; 5a-gf2 → "(PRIMARY-complement)"; 5a-gf → "(diagnostic)".
+
+#### New analysis: Conditioned vs Baseline per-cell permutation (companion to 5a-gf2)
+- **Purpose**: 5a/5a-gf2 estimate the average dose effect across channels; the per-cell analysis describes how that average is distributed across individual channels — answering "broad shallow effect or a few strong responders?"
+- **Method**: For each `(sid × channel × phaseDeg_round × dose)` cell, two-sample label-shuffle permutation (10k MC, median diff) of conditioned probes vs channel-level baseline probes. Bootstrap 95% CIs (2k resamples) for forest-plot uncertainty.
+- **Filters (exactly match 5a-gf2)**: channel-level `phaseVecLength ≥ 0.2` AND good-fit burst restriction (`nGoodBeta ≥ 1`, applied to conditioned trials only — baselines exempt because they have no preceding burst). Per-cell minima: ≥10 baseline probes, ≥5 conditioned probes. Good-fit filter retains ~46% of conditioned trials (16,814 / 36,599). Final dataset: **101 cells across 7 subjects**.
+- **Correction**: BH FDR within (subject × dose) — respects that channels are nested within subjects (electrode grid, anatomy, session noise shared within subject). Pooled FDR kept as a CSV diagnostic column only (near-identical to within-subject on this dataset).
+- **Results**: c91479 has 3-4/4 cells FDR-sig at every dose (median effect ~48 µV at [5,inf), dominant responder). 9ab7ab shows a clear dose gradient (1/4 → 2/4 → 3/4 cells). ecb43e has 1/5 cells sig at [3,4]. 0b5a2e's [5,inf) effect strengthens post-filter (4 uncorrected-sig cells vs 1 pre-filter, median 24 µV) but its 13-test FDR family still rejects. Per-dose subject-presence: 2 / 3 / 2 of 7 subjects with ≥1 FDR-sig cell at [1,2] / [3,4] / [5,inf).
+- **Forest plot**: rows sorted by measured phase (0° at top → 360° at bottom), subject as tie-breaker. Channel labels use raw channel numbers (subject-prefix stripped, e.g. 714→14) with "Subject N" format. Beta trigger channels (sin-fit reference channels per subject) highlighted via pink y-axis labels; dot color signals significance (grey = ns, orange = p<0.05 uncorrected, red = FDR q<0.05 within subject). Font bumped for manuscript legibility (base_size 17, plot dimensions 16×16 in).
+- **Outputs**: `betaStim_cond_vs_base_perchan.csv` (master, includes `perm_q` within-subj and `perm_q_pooled` diagnostic columns), `betaStim_cond_vs_base_per_subject.csv`, `betaStim_cond_vs_base_subject_presence.csv`, `betaStim_cond_vs_base_summary.csv` (per-dose condensed counts, within-subject FDR), `betaStim_cond_vs_base_pooled_summary.csv`, `betaStim_cond_vs_base_forest.png/.eps` (single plot; pooled version dropped). New sections in `betaStim_within_subject_tables.docx`.
+- Documented as Finding 24 in `statistical_audit.md`.
+
+#### Per-dose condensed summary table added (2026-04-15)
+- `betaStim_cond_vs_base_summary.csv`: one row per dose, collapses across subjects. Reports n_cells, n_subjects, n_channels, n_sig_uncorr, pct_sig_uncorr, n_sig_fdr (within-subject), pct_sig_fdr, median_effect, mean_effect.
+- Key pattern: uncorrected rises monotonically (5→7→12 cells, 14.7%→21.2%→35.3%), FDR plateaus at ~21% for [3,4] and [5,inf) (0b5a2e's 4 uncorrected-sig cells at [5,inf) can't survive its 13-test family). Effect-size gradient clear: median 7.6→8.6→13.6 µV.
+
+#### Phase results from primary models (documented 2026-04-15)
+- cos_phase is trend-level in both 5a (p=0.090, β=4.92 µV) and 5a-gf2 (p=0.098, β=5.54 µV) — modulation on the 0°/180° axis.
+- sin_phase non-significant in both (5a p=0.29, 5a-gf2 p=0.19; sign flips between models).
+- No dose × phase interactions (all p>0.23). Phase effect is additive, not dose-gated.
+
+#### 5a-gf2 effect sizes and .docx restructuring
+- Computed total-variance Cohen's d for 5a-gf2 (mirroring 5a's existing computation). total_sd_gf2 = 22.3 µV, resid_sd_gf2 = 13.1 µV.
+- `betaStim_statistical_tables.docx` restructured: PRIMARY MODELS (5a + 5a-gf2 with ANOVA, fixed effects, EMMs, effect sizes) at TOP; SUPPORTING / SENSITIVITY MODELS (3a, 3c, 3e) below with explicit demotion language.
+- All stale "(primary)" references to Model 3c in R script comments updated to "(sensitivity)".
+
+#### FDR correction strategy discussion
+- Considered three correction families: pooled (all 34 cells per dose), within-subject (channels within a patient), within-channel (phases × doses within a channel).
+- Went with **within-subject FDR** as the plotted primary: family sizes 2-13 give BH real correction power while respecting the dominant source of clustering. Within-channel families (1-6) reduce to near-uncorrected; pooled ignores clustering entirely. Pooled kept in CSV for reference; within-channel not implemented (near-uncorrected in practice).
+
+---
+
 ### Phase-label backport, Model 5 sin/cos, d5cd55 fix, bundled deps (2026-04-12)
 
 #### Phase-label swap fix backported to `phase_vs_peak.m`
@@ -175,10 +212,10 @@ All three models converge: dose-dependent CEP enhancement, no phase selectivity 
 Within-channel analysis (4c): interaction disappears (p = 0.70, effect drops to 2.4 uV). Could be power or between-channel confound.
 
 ### Documentation
-- `CLAUDE.md` — Pipeline architecture, all model specifications, data structure notes
-- `statistical_audit.md` — 12 findings and 8 recommendations
+- `CLAUDE.md` — Pipeline architecture, all model specifications, data structure notes, primary model rationale
+- `statistical_audit.md` — 24 findings and updated recommendations (5a/5a-gf2 primary, 3-series sensitivity)
 - `progress.md` — This file
-- `README.md` — R script descriptions
+- `README.md` — R script descriptions (updated to reflect 5a/5a-gf2 as primary)
 
 ---
 
@@ -196,5 +233,5 @@ Within-channel analysis (4c): interaction disappears (p = 0.70, effect drops to 
 
 ## Not yet started
 
-- [ ] Add permutation test validation for phaseClass p-values in main model
-- [ ] Consider expanding `R_compare_control_cond.R` to all 8 matched channels with `lmer(magnitude ~ numStims * sid + (1|channel))`
+- [ ] Manuscript figure integration: incorporate forest plot (Fig 8) and per-dose summary table into manuscript draft
+- [ ] Sensitivity analysis: run cond-vs-base at alternative phaseVecLength thresholds (r ∈ {0, 0.1, 0.3}) to confirm stability

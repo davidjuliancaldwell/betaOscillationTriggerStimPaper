@@ -971,7 +971,7 @@ cat("Model 3c (ANCOVA, slope):        AIC=", round(AIC(fit.ancova),1), " BIC=", 
 cat("Model 3d (ordinal, slope):       AIC=", round(AIC(fit.ordinal_lmer),1), " BIC=", round(BIC(fit.ordinal_lmer),1), " singular=", isSingular(fit.ordinal_lmer), "\n")
 cat("Model 3e (numeric, slope):       AIC=", round(AIC(fit.numeric),1), " BIC=", round(BIC(fit.numeric),1), " singular=", isSingular(fit.numeric), "\n")
 
-# residual diagnostics for primary model (3c)
+# residual diagnostics for Model 3c (sensitivity model; 5a/5a-gf2 diagnostics below)
 figHeight = 4
 figWidth = 8
 if(savePlot){
@@ -1784,6 +1784,26 @@ if (exists("precision_combined")) {
   cat("At phase=90:\n"); print(as.data.frame(emm_gf2_90))
   cat("At phase=270:\n"); print(as.data.frame(emm_gf2_270))
 
+  # --- Variance components + total-SD effect sizes for Model 5a-gf2 ---
+  # Mirrors the 5a computation at lines 1199-1231. Same dose-polynomial
+  # convention (contr.poly(3)[,1]) so E[x^2] = 1/3.
+  vc_gf2 <- VarCorr(fit.sincos.ordinal.gf2)
+  var_sid_int_gf2   <- attr(vc_gf2$sid,     "stddev")["(Intercept)"]^2
+  var_sid_slope_gf2 <- attr(vc_gf2$sid,     "stddev")["dose_linpoly"]^2
+  var_channel_gf2   <- attr(vc_gf2$channel, "stddev")["(Intercept)"]^2
+  var_resid_gf2     <- sigma(fit.sincos.ordinal.gf2)^2
+  total_sd_gf2 <- sqrt(var_sid_int_gf2 + ex2 * var_sid_slope_gf2 +
+                       var_channel_gf2 + var_resid_gf2)
+  resid_sd_gf2 <- sigma(fit.sincos.ordinal.gf2)
+
+  cat(sprintf("\n5a-gf2 variance components: total SD = %.1f uV, residual SD = %.1f uV\n",
+      total_sd_gf2, resid_sd_gf2))
+
+  es_gf2_90  <- compute_effect_sizes(emm_gf2_90,  total_sd_gf2, resid_sd_gf2,
+                                      "5a-gf2 dose at phase=90")
+  es_gf2_270 <- compute_effect_sizes(emm_gf2_270, total_sd_gf2, resid_sd_gf2,
+                                      "5a-gf2 dose at phase=270")
+
   emm_curve_gf2 <- lapply(phase_vals, function(ph) {
     em <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
       at = list(sin_phase = sin(ph*pi/180), cos_phase = cos(ph*pi/180),
@@ -2022,9 +2042,10 @@ if (runPhaseSensitivity) {
 # differences within a channel. The fit is singular because of this
 # redundancy, but the DF correction is the purpose.
 #
-# NOTE: This model is kept for reference/comparison. Model 3 (summary-level)
-# is the primary reported model — it avoids singularity entirely by
-# collapsing to one median per cell.
+# NOTE: This model is kept for reference/comparison. Models 5a / 5a-gf2
+# (continuous circular phase, summary-level) are the primary reported
+# models — they use continuous phase (sin/cos), proper random dose slopes,
+# and avoid the singularity issues of the trial-level nested-condition fit.
 #
 # Nesting: Subject -> Channel -> Condition -> Trial
 #   (0+numStims|sid) — dose-response varies by subject
@@ -2392,34 +2413,50 @@ if (requireNamespace("officer", quietly = TRUE) &&
   # ------------------------------------------------------------------
   # Table 2: Model Comparison Summary
   # ------------------------------------------------------------------
-  comparison_df <- data.frame(
-    Model = c("3a: absDiff (intercepts)",
-              "3b: Magnitude + baseline",
-              "3c: ANCOVA (primary)",
-              "3d: Ordinal dose",
-              "3e: Numeric dose",
-              "5a: Sin/cos ordinal (ANCOVA)",
-              "5b: Sin/cos numeric",
-              "5c: Sin/cos categorical"),
-    N = c(nrow(summaryNB), nrow(summaryAll), nrow(summaryNB_ancova),
-          nrow(summaryNB_ancova), nrow(summaryNB_ancova),
-          nrow(summaryNB_m5), nrow(summaryNB_m5), nrow(summaryNB_m5)),
-    AIC = round(c(AIC(fit.absDiff), AIC(fit.modelD), AIC(fit.ancova),
-                   AIC(fit.ordinal_lmer), AIC(fit.numeric),
-                   AIC(fit.sincos.ordinal), AIC(fit.sincos.numeric), AIC(fit.sincos.categ)), 1),
-    BIC = round(c(BIC(fit.absDiff), BIC(fit.modelD), BIC(fit.ancova),
-                   BIC(fit.ordinal_lmer), BIC(fit.numeric),
-                   BIC(fit.sincos.ordinal), BIC(fit.sincos.numeric), BIC(fit.sincos.categ)), 1),
-    Singular = c(isSingular(fit.absDiff), isSingular(fit.modelD),
+  # Base comparison rows (always present)
+  models_base <- c("3a: absDiff (intercepts, sensitivity)",
+                   "3b: Magnitude + baseline (sensitivity)",
+                   "3c: ANCOVA (binary phaseClass, sensitivity)",
+                   "3d: Ordinal dose (sensitivity)",
+                   "3e: Numeric dose (sensitivity)",
+                   "5a: Sin/cos ordinal (ANCOVA) -- PRIMARY",
+                   "5b: Sin/cos numeric",
+                   "5c: Sin/cos categorical")
+  n_base   <- c(nrow(summaryNB), nrow(summaryAll), nrow(summaryNB_ancova),
+                nrow(summaryNB_ancova), nrow(summaryNB_ancova),
+                nrow(summaryNB_m5), nrow(summaryNB_m5), nrow(summaryNB_m5))
+  aic_base <- c(AIC(fit.absDiff), AIC(fit.modelD), AIC(fit.ancova),
+                AIC(fit.ordinal_lmer), AIC(fit.numeric),
+                AIC(fit.sincos.ordinal), AIC(fit.sincos.numeric), AIC(fit.sincos.categ))
+  bic_base <- c(BIC(fit.absDiff), BIC(fit.modelD), BIC(fit.ancova),
+                BIC(fit.ordinal_lmer), BIC(fit.numeric),
+                BIC(fit.sincos.ordinal), BIC(fit.sincos.numeric), BIC(fit.sincos.categ))
+  sing_base <- c(isSingular(fit.absDiff), isSingular(fit.modelD),
                  isSingular(fit.ancova), isSingular(fit.ordinal_lmer),
                  isSingular(fit.numeric),
                  isSingular(fit.sincos.ordinal), isSingular(fit.sincos.numeric),
-                 isSingular(fit.sincos.categ)),
-    stringsAsFactors = FALSE
-  )
+                 isSingular(fit.sincos.categ))
+
+  # 5a-gf2 added when precision CSVs were present (gated upstream)
+  if (exists("fit.sincos.ordinal.gf2")) {
+    models_base <- c(models_base,
+                     "5a-gf2: Sin/cos ordinal, good-fit + channel phase -- PRIMARY companion")
+    n_base   <- c(n_base, nrow(summaryNB_gf2))
+    aic_base <- c(aic_base, AIC(fit.sincos.ordinal.gf2))
+    bic_base <- c(bic_base, BIC(fit.sincos.ordinal.gf2))
+    sing_base <- c(sing_base, isSingular(fit.sincos.ordinal.gf2))
+  }
+
+  comparison_df <- data.frame(
+    Model    = models_base,
+    N        = n_base,
+    AIC      = round(aic_base, 1),
+    BIC      = round(bic_base, 1),
+    Singular = sing_base,
+    stringsAsFactors = FALSE)
   doc <- body_add_par(doc, "Table: Model Comparison", style = "heading 2")
   ft <- flextable(comparison_df) |> autofit() |>
-    set_caption("Summary-level model comparison. All models use median per (subject x channel x phaseClass x dose) cell.")
+    set_caption("Summary-level model comparison. Models 5a and 5a-gf2 are PRIMARY (continuous circular phase); 3-series are sensitivity. All models use median per cell.")
   doc <- body_add_flextable(doc, ft)
   doc <- body_add_par(doc, "")
 
@@ -2498,13 +2535,144 @@ if (requireNamespace("officer", quietly = TRUE) &&
     doc
   }
 
-  # ------------------------------------------------------------------
-  # Tables for primary models: 3a, 3c, 3e
-  # ------------------------------------------------------------------
-  doc <- add_model_tables(doc, fit.absDiff, "Model 3a (absDiff, intercepts only)")
-  doc <- add_model_tables(doc, fit.ancova, "Model 3c (ANCOVA, primary)")
-  doc <- add_model_tables(doc, fit.numeric, "Model 3e (numeric dose)")
-  doc <- add_model_tables(doc, fit.sincos.ordinal, "Model 5a (sin/cos ordinal, ANCOVA)")
+  # ==================================================================
+  # PRIMARY MODELS — 5a and 5a-gf2 (continuous circular phase)
+  # ==================================================================
+  # These are the primary inferential models for the manuscript. Model 5a
+  # is the conservative primary (channel-level phaseVecLength >= 0.3, all
+  # conditioned trials); Model 5a-gf2 adds the good-fit burst filter
+  # (nGoodBeta >= 1) and relaxes phaseVecLength to 0.2 to stay non-singular.
+  # See CLAUDE.md and statistical_audit.md Finding 23 for rationale.
+  doc <- body_add_par(doc, "PRIMARY MODELS (continuous circular phase)",
+                      style = "heading 1")
+  doc <- body_add_par(doc,
+    paste("Models 5a and 5a-gf2 are the primary inferential models for the",
+          "manuscript. Both use continuous circular phase via",
+          "sin(phaseDeg) + cos(phaseDeg), ordinal dose with a random linear",
+          "slope per subject, baseline ANCOVA, and betaLabels as an additive",
+          "covariate. 5a applies the channel-level phase-quality filter",
+          "(phaseVecLength >= 0.3); 5a-gf2 additionally restricts to",
+          "conditioned trials from bursts with confirmed beta (nGoodBeta >= 1)",
+          "and relaxes the phase-quality threshold to 0.2. See CLAUDE.md and",
+          "statistical_audit.md Finding 23 for rationale."),
+    style = "Normal")
+
+  doc <- add_model_tables(doc, fit.sincos.ordinal,
+                          "Model 5a (PRIMARY — sin/cos ordinal, ANCOVA; phaseVecLength >= 0.3)")
+
+  # EMM Dose Contrasts: Model 5a at phase=90 and phase=270
+  render_emm_contrasts <- function(doc, emm_obj, heading_str, caption_str) {
+    tbl <- as.data.frame(confint(pairs(emm_obj)))
+    tbl$estimate <- round(tbl$estimate, 3)
+    tbl$SE       <- round(tbl$SE, 3)
+    tbl$df       <- round(tbl$df, 1)
+    tbl$lower.CL <- round(tbl$lower.CL, 3)
+    tbl$upper.CL <- round(tbl$upper.CL, 3)
+    names(tbl)[names(tbl) == "lower.CL"] <- "CI lower"
+    names(tbl)[names(tbl) == "upper.CL"] <- "CI upper"
+    doc <- body_add_par(doc, heading_str, style = "heading 2")
+    ft <- flextable(tbl) |> autofit() |> set_caption(caption_str)
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+    doc
+  }
+
+  doc <- render_emm_contrasts(doc, emm_5a_90,
+    "EMM Dose Contrasts: Model 5a @ phase=90 deg",
+    "Pairwise dose contrasts at phase=90 deg (Model 5a, Tukey-adjusted).")
+  doc <- render_emm_contrasts(doc, emm_5a_270,
+    "EMM Dose Contrasts: Model 5a @ phase=270 deg",
+    "Pairwise dose contrasts at phase=270 deg (Model 5a, Tukey-adjusted).")
+
+  # Effect sizes for Model 5a (already in the file further down, but repeat
+  # here so primary-model effect sizes live together with primary tables)
+  es_90_primary <- es_90[, c("contrast", "estimate", "d_total",
+                              "d_total_lower", "d_total_upper", "d_conditional")]
+  es_90_primary[, -1] <- round(es_90_primary[, -1], 3)
+  names(es_90_primary) <- c("Contrast", "Estimate (uV)", "d_total",
+                             "d_total lower", "d_total upper", "d_conditional")
+  doc <- body_add_par(doc, "Effect Sizes: Model 5a Dose @ phase=90",
+                      style = "heading 2")
+  ft <- flextable(es_90_primary) |> autofit() |>
+    set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=90 (Model 5a). d_total SD = %.1f uV, d_conditional SD = %.1f uV.",
+                        total_sd_5a, resid_sd_5a))
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  es_270_primary <- es_270[, c("contrast", "estimate", "d_total",
+                                "d_total_lower", "d_total_upper", "d_conditional")]
+  es_270_primary[, -1] <- round(es_270_primary[, -1], 3)
+  names(es_270_primary) <- c("Contrast", "Estimate (uV)", "d_total",
+                              "d_total lower", "d_total upper", "d_conditional")
+  doc <- body_add_par(doc, "Effect Sizes: Model 5a Dose @ phase=270",
+                      style = "heading 2")
+  ft <- flextable(es_270_primary) |> autofit() |>
+    set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=270 (Model 5a). d_total SD = %.1f uV.",
+                        total_sd_5a))
+  doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- Model 5a-gf2 (good-fit companion primary) ---
+  if (exists("fit.sincos.ordinal.gf2")) {
+    doc <- add_model_tables(doc, fit.sincos.ordinal.gf2,
+      "Model 5a-gf2 (PRIMARY companion — good-fit + channel-level phase, phaseVecLength >= 0.2)")
+
+    if (exists("emm_gf2_90")) {
+      doc <- render_emm_contrasts(doc, emm_gf2_90,
+        "EMM Dose Contrasts: Model 5a-gf2 @ phase=90 deg",
+        "Pairwise dose contrasts at phase=90 deg (Model 5a-gf2, Tukey-adjusted).")
+      doc <- render_emm_contrasts(doc, emm_gf2_270,
+        "EMM Dose Contrasts: Model 5a-gf2 @ phase=270 deg",
+        "Pairwise dose contrasts at phase=270 deg (Model 5a-gf2, Tukey-adjusted).")
+    }
+
+    if (exists("es_gf2_90")) {
+      es_gf2_90_export <- es_gf2_90[, c("contrast", "estimate", "d_total",
+                                          "d_total_lower", "d_total_upper", "d_conditional")]
+      es_gf2_90_export[, -1] <- round(es_gf2_90_export[, -1], 3)
+      names(es_gf2_90_export) <- c("Contrast", "Estimate (uV)", "d_total",
+                                    "d_total lower", "d_total upper", "d_conditional")
+      doc <- body_add_par(doc, "Effect Sizes: Model 5a-gf2 Dose @ phase=90",
+                          style = "heading 2")
+      ft <- flextable(es_gf2_90_export) |> autofit() |>
+        set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=90 (Model 5a-gf2). d_total SD = %.1f uV, d_conditional SD = %.1f uV.",
+                            total_sd_gf2, resid_sd_gf2))
+      doc <- body_add_flextable(doc, ft)
+      doc <- body_add_par(doc, "")
+
+      es_gf2_270_export <- es_gf2_270[, c("contrast", "estimate", "d_total",
+                                            "d_total_lower", "d_total_upper", "d_conditional")]
+      es_gf2_270_export[, -1] <- round(es_gf2_270_export[, -1], 3)
+      names(es_gf2_270_export) <- c("Contrast", "Estimate (uV)", "d_total",
+                                      "d_total lower", "d_total upper", "d_conditional")
+      doc <- body_add_par(doc, "Effect Sizes: Model 5a-gf2 Dose @ phase=270",
+                          style = "heading 2")
+      ft <- flextable(es_gf2_270_export) |> autofit() |>
+        set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=270 (Model 5a-gf2). d_total SD = %.1f uV.",
+                            total_sd_gf2))
+      doc <- body_add_flextable(doc, ft)
+      doc <- body_add_par(doc, "")
+    }
+  }
+
+  # ==================================================================
+  # SUPPORTING / SENSITIVITY MODELS — 3a, 3c, 3e (binary phaseClass)
+  # ==================================================================
+  # Retained as robustness checks. Binary 90/270 binning discards circular
+  # information; primary inference is in Models 5a / 5a-gf2 above.
+  doc <- body_add_par(doc, "SUPPORTING / SENSITIVITY MODELS (binary phaseClass)",
+                      style = "heading 1")
+  doc <- body_add_par(doc,
+    paste("Models 3a, 3c, and 3e use binary phaseClass (90 / 270 bins).",
+          "Retained as robustness checks — they converge on the dose",
+          "effect seen in 5a/5a-gf2 but discard circular-phase information",
+          "and conflate distinct measured phases at multi-phase channels.",
+          "These are not the primary inferential models for the manuscript."),
+    style = "Normal")
+
+  doc <- add_model_tables(doc, fit.absDiff, "Model 3a (absDiff, intercepts only — sensitivity)")
+  doc <- add_model_tables(doc, fit.ancova, "Model 3c (ANCOVA, binary phaseClass — sensitivity)")
+  doc <- add_model_tables(doc, fit.numeric, "Model 3e (numeric dose, binary phaseClass — sensitivity)")
 
   # ------------------------------------------------------------------
   # EMM Dose Contrasts: Model 3a
@@ -2539,7 +2707,7 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- body_add_par(doc, "")
 
   # ------------------------------------------------------------------
-  # EMM Dose Contrasts: Model 3c (ANCOVA, primary)
+  # EMM Dose Contrasts: Model 3c (ANCOVA, sensitivity)
   # ------------------------------------------------------------------
   dose_3c_tbl <- as.data.frame(confint(pairs(emm_3c_dose)))
   dose_3c_tbl$estimate <- round(dose_3c_tbl$estimate, 3)
@@ -2604,30 +2772,8 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- body_add_flextable(doc, ft)
   doc <- body_add_par(doc, "")
 
-  # ------------------------------------------------------------------
-  # Model 5a: Total-variance effect sizes (Westfall et al. 2014)
-  # ------------------------------------------------------------------
-  es_90_export <- es_90[, c("contrast", "estimate", "d_total", "d_total_lower", "d_total_upper", "d_conditional")]
-  es_90_export[, -1] <- round(es_90_export[, -1], 3)
-  names(es_90_export) <- c("Contrast", "Estimate (uV)", "d_total", "d_total lower", "d_total upper", "d_conditional")
-
-  doc <- body_add_par(doc, "Effect Sizes: Model 5a Dose at Phase=90", style = "heading 2")
-  ft <- flextable(es_90_export) |> autofit() |>
-    set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=90 deg (Model 5a). d_total denominator = %.1f uV (total SD), d_conditional = %.1f uV (residual SD).",
-                        total_sd_5a, resid_sd_5a))
-  doc <- body_add_flextable(doc, ft)
-  doc <- body_add_par(doc, "")
-
-  es_270_export <- es_270[, c("contrast", "estimate", "d_total", "d_total_lower", "d_total_upper", "d_conditional")]
-  es_270_export[, -1] <- round(es_270_export[, -1], 3)
-  names(es_270_export) <- c("Contrast", "Estimate (uV)", "d_total", "d_total lower", "d_total upper", "d_conditional")
-
-  doc <- body_add_par(doc, "Effect Sizes: Model 5a Dose at Phase=270", style = "heading 2")
-  ft <- flextable(es_270_export) |> autofit() |>
-    set_caption(sprintf("Total-variance Cohen's d for dose contrasts at phase=270 deg (Model 5a). d_total denominator = %.1f uV.",
-                        total_sd_5a))
-  doc <- body_add_flextable(doc, ft)
-  doc <- body_add_par(doc, "")
+  # Note: Model 5a and 5a-gf2 effect-size tables are placed in the
+  # "PRIMARY MODELS" section at the top of this document, not here.
 
   # ------------------------------------------------------------------
   # Save .docx

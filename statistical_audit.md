@@ -2,7 +2,25 @@
 
 Audit of `R_analysis_scripts/betaStim_R_script.R` and its upstream data generation in `peak_extraction/multipleSubj_GLMM_script_PP.m`.
 
-## Model Under Review
+---
+
+## Current primary models (2026-04-14 update)
+
+The sections below document successive iterations of the primary model across the project's history. **As of 2026-04-14, the primary inferential models are Model 5a and Model 5a-gf2 (continuous circular phase, see Finding 23).** Earlier primary designations (originally a trial-level model with `(1|sid/channel)`, later Model 3 series with binary phaseClass) are retained in this document as historical record and as robustness checks for the manuscript.
+
+**Primary pair:**
+- **Model 5a** (channel-level phase, `phaseVecLength ≥ 0.3`, random dose slope): 78 obs, 19 channels. Dose.L p=0.068 (trend), effect size 6.4 µV.
+- **Model 5a-gf2** (good-fit burst restriction + channel-level phase, `phaseVecLength ≥ 0.2`, random dose slope): 102 obs, 25 channels. Dose.L p=0.049, effect size 8.6 µV.
+
+**Companion per-cell analysis** (added 2026-04-14, Finding 24): Conditioned vs Baseline two-sample label-shuffle permutation (10k MC, median diff) for each `(subject × channel × phase × dose)` cell, BH FDR within (subject × dose). Describes the distribution of the LMM's population-level effect across individual channels.
+
+**Superseded designations:**
+- Original trial-level LMM (Section "Model Under Review" below): `(1|sid/channel)` inflated DF → flagged in Findings 1 and 11, no longer primary.
+- Models 3a-3e (binary phaseClass, Finding 15): primary through early 2026; now reframed as sensitivity checks because binary phaseClass discards circular information and conflates multiple delivered phases at multi-phase channels. See Finding 23 for the rationale for moving to 5a/5a-gf2.
+
+---
+
+## Model Under Review (historical — original trial-level model)
 
 The primary model fit on trial-level data (`dataNoBaseline`, ~37K rows after exclusions):
 
@@ -277,19 +295,33 @@ Both interpretations should be acknowledged. The within-channel analysis is the 
 
 ## Recommendations
 
+**These recommendations were drafted when the Model 3 series (binary phaseClass) was the primary analysis. Items 4-7 have been superseded by Finding 23 (continuous phase, Models 5a/5a-gf2). Items 1-3 and 8 remain valid and are implemented in the current pipeline.**
+
+### Current (2026-04-14) recommendations
+
+A. **Primary inference: Models 5a and 5a-gf2 (continuous sin/cos phase).** See Finding 23. Report both — 5a as the conservative primary, 5a-gf2 as the primary complement with the good-fit quality filter.
+
+B. **Companion per-cell analysis: Conditioned vs Baseline two-sample permutation.** See Finding 24. Use BH FDR within (subject × dose) to respect nesting. Report pooled FDR as sensitivity. This characterizes how the LMM's average effect is distributed across channels.
+
+C. **Retain Models 3a-3e as robustness checks**, not primary. The binary phaseClass framing is no longer the central inferential claim but gives readers a cross-check against a categorical phase model.
+
+D. **Keep within-channel analyses (Finding 2, 9 channels) as explicit sensitivity checks**, not as the primary causal test — the within-channel subset is too underpowered (p=0.70 in Model 4c) to carry primary inference, and the full-dataset phase decomposition (5a/5a-gf2) avoids the binary-bin confound that motivated the within-channel restriction.
+
+### Historical recommendations (Model 3 era — items 4-7 superseded)
+
 1. **Separate within-channel and between-channel phaseClass analyses.** Restrict the primary phaseClass analysis to the 9 channels (across 3 subjects) with within-channel variation. Report the between-channel analysis separately as supporting evidence, clearly noting the confound.
 
 2. **Remove 9ab7ab from any model that includes phaseClass** as a predictor. It contributes no contrast and distorts the dataset balance.
 
 3. **Exclude or separately analyze ecb43e random-condition trials** (`setToDeliverPhase == 12345`). They weren't phase-targeted and shouldn't receive the same treatment as deliberate phase conditions.
 
-4. **Use the summary-level model (Model 3) as the primary analysis** to eliminate pseudoreplication. Collapse to one median per (sid, phaseClass, numStims, channel) cell (120 observations). Use `magnitude ~ numStims * phaseClass + (1|sid) + (1|channel)` — random intercepts only. Random dose slopes cause singularity with 6 subjects; `setToDeliverPhase` is a fixed experimental condition and should not be a random grouping variable.
+4. ~~**Use the summary-level model (Model 3) as the primary analysis**~~ — **superseded by Recommendation A (Finding 23).** Model 3 is retained as a sensitivity check.
 
-5. **Validate phaseClass p-values** by comparing trial-level model standard errors against a channel-level analysis (e.g., permutation test or bootstrap at the channel level).
+5. ~~**Validate phaseClass p-values**~~ — **superseded**; continuous-phase models (5a/5a-gf2) and the per-cell permutation analysis (Finding 24) serve this role.
 
-6. **Consider the continuous phase variable** (`phaseDeliveryBinned45`, 8 bins of 45 degrees) instead of the binary 90/270 classification as a sensitivity analysis, at least for within-channel contrasts where more phase resolution is available.
+6. ~~**Consider the continuous phase variable...as a sensitivity analysis**~~ — **realized as primary in Finding 23.**
 
-7. **Report effective sample sizes** alongside the model. The reader should know that the phaseClass effect is estimated from ~49 channel-condition units (or 9 within-channel contrasts), not 37K trials.
+7. **Report effective sample sizes** alongside the model. Still applies: 5a uses 78 obs across 19 channels; 5a-gf2 uses 102 obs across 25 channels; 7 subjects throughout.
 
 8. **Frame the channel 14 closed-loop vs playback comparison as a selected-channel analysis.** The dose-response interaction is significant on this channel (permutation p = 0.039) but does not generalize across all 8 channels (p = 0.18). Report both results transparently.
 
@@ -621,3 +653,105 @@ Isolated mismatches on non-reference channels are expected from cortical beta ph
 ### ecb43e inverted hardware convention
 
 ecb43e is the only subject where `ptsPos = stims(8)==0` and `ptsNeg = stims(8)==1` in `B_phaseCalc_allChans_processed.m` (lines 190–191), the reverse of all other multi-phase subjects. This is compensated by `desiredF = [270, 90, ...]` (flipped from the standard [90, 270]) and the type `'t'` branch in the `correctIdx` mapping. Verified correct: ch55 (beta ref) pos circMean=259.8° (target 270°) and neg circMean=130.4° (target 90°).
+
+---
+
+## Finding 23: Models 5a and 5a-gf2 (continuous circular phase) are the primary models (2026-04-14)
+
+**Decision**: The primary inferential models for the manuscript are **Model 5a** and **Model 5a-gf2**, both using continuous circular phase via `sin(phaseDeg) + cos(phaseDeg)`. The Model 3 series (binary phaseClass 90 vs 270) is retained as a robustness/sensitivity check.
+
+### Rationale
+
+1. **Phase is a circular quantity.** The 90°/270° binning used by Models 3a-3e treats phase as a 2-level factor and discards the actual measured angle. Channels with measured phases of 85° and 105° end up in the same bin, while 89° and 91° are split between bins despite being essentially identical. Fisher (1993) recommends decomposing circular predictors as `sin(phase)` and `cos(phase)`, which is what Models 5a / 5a-gf2 do.
+
+2. **Grouping by measured phase preserves distinct conditions.** The 3-series grouping `(sid, channel, phaseClass, numStims)` collapses multiple delivered phases that happen to bin together into a single summary row. The 5-series grouping `(sid, phaseDeg_round, numStims, channel)` keeps distinct measured phases as separate cells, accurately reflecting that a multi-phase channel received stimulation at two different angles.
+
+3. **5a-gf2 adds a principled quality filter.** Requiring `nGoodBeta ≥ 1` (at least one conditioning stim with R² > 0.7 and frequency 12-20 Hz per burst) restricts analysis to bursts where beta was actually present during conditioning. This directly supports the "phase-triggered stimulation requires an ongoing oscillation" hypothesis. Model 5a (no good-fit restriction) is the more conservative test; 5a-gf2 sharpens the effect.
+
+4. **5a and 5a-gf2 together cover the analytic space.** 5a is the broader, more conservative primary (stricter phaseVecLength but no good-fit filter). 5a-gf2 adds the good-fit filter with a slightly relaxed phaseVecLength to stay non-singular. Sensitivity analysis across r ∈ {0, 0.1, 0.2, 0.3, 0.4} shows dose effect strengthening monotonically with r in both models (`output_plots/betaStim_phase_quality_sensitivity.csv`).
+
+### Model results (from `CLAUDE.md` summary)
+
+| Model | N | Channels | Dose.L p | sin p | cos p | Effect (µV) | Singular |
+|-------|---|----------|----------|-------|-------|-------------|----------|
+| 5a (r≥0.3) | 78 | 19 | **0.068** (trend) | 0.29 | 0.090 (trend) | 6.4 | No |
+| 5a-gf2 (r≥0.2, good-fit) | 102 | 25 | **0.049** | 0.19 | 0.13 | 8.6 | No |
+| 5a-gf (r≥0, good-fit, intercepts only) | 96 | — | 0.047 | — | — | — | No, but anti-conservative |
+
+5a-gf (per-burst phase, intercepts only, 96 obs) is **not** used for inference — it becomes singular when a random dose slope is added, and without the slope its dose p-value is anti-conservative. It is retained as a diagnostic (sensitivity check for per-burst vs channel-level phase aggregation).
+
+### Why not pool 5a and 5a-gf2 into one primary?
+
+They represent two meaningfully different filter choices (quality threshold on phase consistency vs quality threshold on beta presence during bursts). Both are preregistered defaults. Reporting both as the primary pair is more transparent than arbitrarily selecting one as "the" primary.
+
+### Implications for interpretation
+
+- The central manuscript claim — cumulative dose-dependent EP enhancement modulated by phase — is supported at p=0.049 (5a-gf2) and as a trend at p=0.068 (5a). Effect sizes are small but reproducible.
+- Interaction terms (dose × sin_phase, dose × cos_phase) are not significant in either model, so the dose effect is not strongly phase-gated at the group level. The phase effects are small trends in cos (~0.09-0.13).
+- The 3-series models' dose p=0.0002 (Model 3a on absDiff, intercepts only) is stronger than 5a/5a-gf2's p-values **because** 3a lacks random dose slopes. That's not a valid reason to prefer 3a — the slopes are required to account for cross-subject heterogeneity in dose response, and 3a's strong p is partly attributable to the missing slope. 5a/5a-gf2 with the proper random-effects structure give the honest inferential statement.
+
+---
+
+## Finding 24: Conditioned vs Baseline per-cell permutation + within-subject FDR (2026-04-14)
+
+**Motivation**: Models 5a and 5a-gf2 estimate the **average** dose effect across channels. They do not describe how that average is **distributed** across individual channels. A 5 µV group-level effect could come from (i) every channel modulating by ~5 µV, or (ii) a few channels modulating strongly while most are flat. The per-cell permutation analysis distinguishes these.
+
+### Method
+
+For each `(sid × channel × phaseDeg_round × dose)` cell passing filters:
+- **Test**: two-sample label-shuffle permutation, median difference, 10,000 MC iterations.
+- **Bootstrap 95% CIs**: 2,000 resamples per cell, percentile method, for forest-plot uncertainty visualization.
+- **Filters (exactly match 5a-gf2)**:
+  1. Channel-level `phaseVecLength ≥ 0.2` (drops channels where phase was not consistently delivered).
+  2. Good-fit burst restriction `nGoodBeta ≥ 1` (each conditioned trial's preceding burst had ≥1 stim with R² > 0.7 AND frequency 12-20 Hz). Baseline trials are exempt (no preceding burst).
+  3. Per-cell minima: ≥10 baseline probes, ≥5 conditioned probes (post-filter).
+- Baselines are channel-level (pooled across phase conditions); conditioned trials are grouped by `phaseDeg_round`.
+
+### Correction: BH FDR within (subject × dose)
+
+Channels are nested within subjects — channels within a patient share an electrode grid, anatomy, and session-specific noise, and are therefore not exchangeable across subjects. The correction family is one subject's cells at one dose. Pooled FDR (within dose, across all subjects) is reported as a diagnostic CSV column only; not plotted (near-identical to within-subject on this dataset).
+
+### Results (101 cells, 7 subjects)
+
+Good-fit filter retains ~46% of conditioned trials (16,814 / 36,599). One cell dropped below the 5-conditioned-trial minimum after filtering (101 vs 102 before filter).
+
+**Per-subject × dose (within-subject FDR):**
+
+| Subject | n_cells | [1,2] sig | [3,4] sig | [5,inf) sig | Median Δ at [5,inf) |
+|---------|---------|-----------|-----------|-------------|---------------------|
+| 0b5a2e  | 13      | 0         | 0         | 0           | 24.3 µV (4 uncorr at [5,inf); 13-cell FDR family harsh) |
+| 702d24  | 2       | 0         | 0         | 0           | 7.6 µV (underpowered) |
+| 7dbdec  | 3       | 0         | 0         | 0           | similar pattern to pre-filter |
+| 9ab7ab  | 4       | 1         | 2         | 3           | ~5 µV (clear internal dose gradient) |
+| c91479  | 4       | 3         | 4         | 4           | ~48 µV (dominant responder) |
+| d5cd55  | 3       | 0         | 0         | 0           | ~21 µV (underpowered for 3-test family) |
+| ecb43e  | 5       | 0         | 1         | 0           | mixed |
+
+**Across-subject summary:** at each dose, 2-3 of 7 subjects contribute at least one FDR-significant cell. Peak is at [3,4] (3 subjects), not [5,inf) (2 subjects), because ecb43e's lone significant cell at [3,4] doesn't persist.
+
+**Comparison to pre-filter version:** good-fit filter strengthens 0b5a2e's per-cell signal (4 uncorrected-sig cells at [5,inf) vs 1 before), consistent with the "beta actually present during conditioning" interpretation. c91479 loses 1 FDR-sig cell at [1,2] (3/4 vs 4/4 before) — the filter removes trials with intermittent beta, making variance estimates noisier for some of its cells. Overall subject-level counts unchanged.
+
+**Pooled-FDR sensitivity:** essentially identical to within-subject FDR on this dataset. Retained as a CSV diagnostic column only; not a separate plot.
+
+### Interpretation
+
+- **Supports the 5a-gf2 dose effect**: it's not a single-subject artifact; at minimum 2 subjects contribute individually detectable modulation at every dose. c91479 is the clearest responder; 9ab7ab shows a textbook dose gradient.
+- **Explains why 0b5a2e's effect isn't per-cell-significant despite strong median effects**: 13-cell FDR family requires p ≤ 0.004 for the smallest to survive. Its best [5,inf) p is 0.028. The LMM recovers this by borrowing strength across its 13 channels — the per-cell test cannot.
+- **Companion, not primary**: per-cell permutations describe distribution; the LMM (5a / 5a-gf2) makes the population-level inferential claim. Both are reported together.
+
+### Outputs
+
+- `output_plots/betaStim_cond_vs_base_perchan.csv` — master table (one row per cell: n, medians, obs_diff, bootstrap CI, perm_p, perm_q within-subj, perm_q pooled, sig flags)
+- `output_plots/betaStim_cond_vs_base_per_subject.csv` — per subject × dose breakdown
+- `output_plots/betaStim_cond_vs_base_subject_presence.csv` — across-subject headline (N subjects with ≥1 FDR-sig cell per dose)
+- `output_plots/betaStim_cond_vs_base_pooled_summary.csv` — pooled-FDR sensitivity summary
+- `output_plots/betaStim_cond_vs_base_forest.png/.eps` — forest plot (within-subject FDR, primary)
+- `.docx` export: new sections in `betaStim_within_subject_tables.docx`
+
+### Forest plot conventions
+
+- Rows sorted by measured phase (0° at top → 360° at bottom), subject as tie-breaker
+- Channel label: "Subject N ChX @ P°" with raw channel number (subject-number prefix stripped)
+- Beta trigger channels (d5cd55 Ch53, c91479 Ch64, 7dbdec Ch4, 9ab7ab Ch51, 702d24 Ch5, ecb43e Ch55, 0b5a2e Ch31) highlighted with pink y-axis labels; dot color remains tied to significance category
+- Dot colors: grey = ns, orange = p<0.05 uncorrected, red = FDR q<0.05 (within subject for primary plot; pooled for sensitivity plot)
+- Three dose panels: [1,2], [3,4], [5,inf)

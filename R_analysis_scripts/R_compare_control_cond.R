@@ -1355,6 +1355,351 @@ pct_chan$pctChange <- round(pct_chan$pctChange, 1)
 pct_chan <- pct_chan[order(pct_chan$sid, pct_chan$channel, pct_chan$numStims), ]
 
 # ========================================================================
+# Conditioned vs Baseline: per-cell permutation + within-subject FDR
+# ========================================================================
+# Companion to Model 5a-gf2. The LMM estimates the AVERAGE effect across
+# channels. This block estimates how that average is DISTRIBUTED across
+# channels — asking in how many cells the effect is individually detectable
+# within each subject (channels are nested within subjects).
+#
+# Scope: all 7 main subjects (0b5a2ePlayBack and ecb43e random excluded).
+# Filters: channel-level phaseVecLength >= 0.2 (matches 5a-gf2),
+#          >= 10 baseline probes, >= 5 conditioned probes per cell.
+# Test: two-sample label-shuffle permutation (median diff, 10k MC).
+# Correction: BH FDR within (subject x dose). Channels are nested within
+# subjects, so the FDR family is one subject's cells at one dose. A pooled
+# FDR column (perm_q_pooled) is also reported as a sensitivity check.
+# ========================================================================
+cat("\n========== Conditioned vs Baseline per-cell permutation ==========\n")
+
+minPhaseVecLength_cb    <- 0.2   # match 5a-gf2 channel r threshold
+minGoodBetaPerBurst_cb  <- 1     # match 5a-gf2 good-fit filter: each conditioned
+                                 # trial's preceding burst must have >= 1 stim
+                                 # with R^2 > 0.7 AND frequency in 12-20 Hz.
+                                 # Set 0 to disable for sensitivity checks.
+min_n_cond_cb <- 5               # min conditioned probes per cell (post-filter)
+min_n_base_cb <- 10              # min baseline probes per channel
+nPerm_cb <- 10000
+nBoot_cb <- 2000
+set.seed(42)
+
+# `data` already has magnitude bounds, ecb43e random excluded,
+# 0b5a2ePlayBack excluded. Re-apply safety filters in case this block is
+# run standalone.
+dataCB <- data[data$magnitude >= 25 & data$magnitude <= 1500 &
+               !is.na(data$magnitude) &
+               data$sid != "0b5a2ePlayBack" &
+               data$numStims != "Null" &
+               !(data$sid == "ecb43e" &
+                 as.character(data$setToDeliverPhase) == "12345"), ]
+
+# Merge nGoodBeta from per-subject burst phase precision CSVs. The merge
+# key is (probeSample, channel) -> (probeSample, channelEncoded). Matches
+# how Model 5a-gf2 applies its good-fit filter. Baseline trials don't have
+# preceding bursts, so they keep nGoodBeta = NA and are exempted from the
+# filter below.
+precision_files_cb <- Sys.glob(here("data", "output_table",
+                                     "*_burst_phase_precision.csv"))
+if (length(precision_files_cb) > 0) {
+  precision_cb <- do.call(rbind, lapply(precision_files_cb, read.csv))
+  precision_cb_sub <- precision_cb[, c("probeSample", "channelEncoded",
+                                        "nGoodBeta")]
+  # Drop 0b5a2ePlayBack rows — only the 7 main subjects enter this analysis.
+  dataCB <- merge(dataCB, precision_cb_sub,
+                  by.x = c("probeSample", "channel"),
+                  by.y = c("probeSample", "channelEncoded"),
+                  all.x = TRUE)
+  n_before_gf <- sum(dataCB$numStims != "Base")
+  # Apply good-fit filter to conditioned trials only. Trials with no
+  # precision match (NA nGoodBeta) on a conditioned row are dropped —
+  # matches 5a-gf2 behavior of requiring a confirmed burst fit.
+  keep_trial <- dataCB$numStims == "Base" |
+    (!is.na(dataCB$nGoodBeta) & dataCB$nGoodBeta >= minGoodBetaPerBurst_cb)
+  dataCB <- dataCB[keep_trial, ]
+  n_after_gf <- sum(dataCB$numStims != "Base")
+  cat(sprintf("Good-fit filter (nGoodBeta >= %d): kept %d of %d conditioned trials (%.1f%%)\n",
+      minGoodBetaPerBurst_cb, n_after_gf, n_before_gf,
+      100 * n_after_gf / n_before_gf))
+} else {
+  warning("No burst_phase_precision CSVs found — good-fit filter not applied. Results will be non-comparable to 5a-gf2.")
+  dataCB$nGoodBeta <- NA
+}
+
+# Channel × condition combos passing the phaseVecLength filter.
+keep_chan_cond <- unique(dataCB[!is.na(dataCB$phaseVecLength) &
+  dataCB$phaseVecLength >= minPhaseVecLength_cb,
+  c("sid", "channel", "setToDeliverPhase")])
+cat(sprintf("Kept %d channel x condition combos at phaseVecLength >= %.2f\n",
+    nrow(keep_chan_cond), minPhaseVecLength_cb))
+
+doses_cb <- c("[1,2]", "[3,4]", "[5,inf)")
+cell_list <- list(); idx_cb <- 0L
+
+for (sid_val in sort(unique(as.character(dataCB$sid)))) {
+  dS <- dataCB[as.character(dataCB$sid) == sid_val, ]
+  for (ch in sort(unique(as.character(dS$channel)))) {
+    dCh <- dS[as.character(dS$channel) == ch, ]
+    # Baselines are channel-level (not tied to phase condition).
+    mBase <- dCh$magnitude[dCh$numStims == "Base"]
+    if (length(mBase) < min_n_base_cb) next
+
+    for (phrd in sort(unique(dCh$phaseDeg_round))) {
+      if (is.na(phrd)) next
+      setPh <- unique(as.character(
+        dCh$setToDeliverPhase[dCh$phaseDeg_round == phrd]))
+      passes <- any(keep_chan_cond$sid == sid_val &
+                    as.character(keep_chan_cond$channel) == ch &
+                    as.character(keep_chan_cond$setToDeliverPhase) %in% setPh)
+      if (!passes) next
+
+      for (dose in doses_cb) {
+        mCond <- dCh$magnitude[dCh$phaseDeg_round == phrd &
+                                as.character(dCh$numStims) == dose]
+        if (length(mCond) < min_n_cond_cb) next
+
+        obs_diff <- median(mCond) - median(mBase)
+        all_mags <- c(mCond, mBase)
+        is_cond  <- c(rep(TRUE, length(mCond)), rep(FALSE, length(mBase)))
+        perm_diffs <- replicate(nPerm_cb, {
+          shuf <- sample(is_cond)
+          median(all_mags[shuf]) - median(all_mags[!shuf])
+        })
+        perm_p <- mean(abs(perm_diffs) >= abs(obs_diff))
+
+        boot_diffs <- replicate(nBoot_cb, {
+          bC <- sample(mCond, replace = TRUE)
+          bB <- sample(mBase, replace = TRUE)
+          median(bC) - median(bB)
+        })
+
+        idx_cb <- idx_cb + 1L
+        cell_list[[idx_cb]] <- data.frame(
+          sid = sid_val, channel_raw = ch,
+          phaseDeg_round = phrd,
+          setToDeliverPhase = paste(setPh, collapse = "/"),
+          numStims = dose,
+          n_cond = length(mCond), n_base = length(mBase),
+          median_cond = round(median(mCond), 1),
+          median_base = round(median(mBase), 1),
+          obs_diff = round(obs_diff, 1),
+          lo_ci = round(quantile(boot_diffs, 0.025, names = FALSE), 1),
+          hi_ci = round(quantile(boot_diffs, 0.975, names = FALSE), 1),
+          perm_p = round(perm_p, 4),
+          stringsAsFactors = FALSE)
+      }
+    }
+  }
+}
+cb_perchan <- do.call(rbind, cell_list)
+cat(sprintf("Built %d cells across %d subjects\n",
+    nrow(cb_perchan), length(unique(cb_perchan$sid))))
+
+# --- FDR within (subject x dose): primary correction ---
+# Family = one subject's cells at one dose. Matches the nested design.
+cb_perchan$perm_q <- NA_real_
+cb_perchan$n_tests_family <- NA_integer_
+for (sid_val in unique(cb_perchan$sid)) {
+  for (dose in doses_cb) {
+    rows <- cb_perchan$sid == sid_val & cb_perchan$numStims == dose
+    if (sum(rows) > 0) {
+      cb_perchan$perm_q[rows] <- p.adjust(cb_perchan$perm_p[rows], method = "BH")
+      cb_perchan$n_tests_family[rows] <- sum(rows)
+    }
+  }
+}
+cb_perchan$perm_q <- round(cb_perchan$perm_q, 4)
+
+# --- Pooled FDR within dose: sensitivity check ---
+cb_perchan$perm_q_pooled <- NA_real_
+for (dose in doses_cb) {
+  rows <- cb_perchan$numStims == dose
+  if (sum(rows) > 0) {
+    cb_perchan$perm_q_pooled[rows] <-
+      p.adjust(cb_perchan$perm_p[rows], method = "BH")
+  }
+}
+cb_perchan$perm_q_pooled <- round(cb_perchan$perm_q_pooled, 4)
+
+cb_perchan$sig_uncorr    <- cb_perchan$perm_p < 0.05
+cb_perchan$sig_fdr       <- !is.na(cb_perchan$perm_q) &
+                            cb_perchan$perm_q < 0.05
+cb_perchan$sig_fdr_pooled <- !is.na(cb_perchan$perm_q_pooled) &
+                             cb_perchan$perm_q_pooled < 0.05
+
+# --- Per-subject x dose: primary reporting unit ---
+cb_subj_fdr <- plyr::ddply(cb_perchan, .(sid, numStims), summarize,
+  n_cells          = length(perm_p),
+  n_sig_uncorr     = sum(sig_uncorr),
+  n_sig_fdr        = sum(sig_fdr),
+  pct_sig_fdr      = round(100 * mean(sig_fdr), 1),
+  any_sig_uncorr   = any(sig_uncorr),
+  any_sig_fdr      = any(sig_fdr),
+  median_effect    = round(median(obs_diff), 1))
+cb_subj_fdr$numStims <- factor(cb_subj_fdr$numStims, levels = doses_cb)
+cb_subj_fdr <- cb_subj_fdr[order(cb_subj_fdr$sid, cb_subj_fdr$numStims), ]
+
+cat("\nPer-subject x dose (FDR within subject x dose):\n")
+print(cb_subj_fdr)
+
+# --- Across-subject summary per dose ---
+# Headline statistic: median of per-subject fractions modulated, and count
+# of subjects with >=1 FDR-sig cell. Treats each subject as one unit.
+cb_subj_presence <- plyr::ddply(cb_subj_fdr, .(numStims), summarize,
+  n_subjects_total      = length(any_sig_fdr),
+  n_subj_any_fdr        = sum(any_sig_fdr),
+  pct_subj_any_fdr      = round(100 * mean(any_sig_fdr), 1),
+  n_subj_any_uncorr     = sum(any_sig_uncorr),
+  pct_subj_any_uncorr   = round(100 * mean(any_sig_uncorr), 1),
+  median_pct_sig_fdr    = round(median(pct_sig_fdr), 1),
+  mean_pct_sig_fdr      = round(mean(pct_sig_fdr), 1))
+cb_subj_presence$numStims <- factor(cb_subj_presence$numStims, levels = doses_cb)
+cb_subj_presence <- cb_subj_presence[order(cb_subj_presence$numStims), ]
+
+cat("\nAcross-subject summary per dose:\n")
+print(cb_subj_presence)
+
+# --- Per-dose summary: collapses across subjects, reports within-subject FDR ---
+# One row per dose bin. Counts cells (not subjects) passing uncorrected and
+# within-subject FDR thresholds. The within-subject FDR is the primary
+# correction — families built per (subject x dose) — and this summary
+# aggregates the per-family outcomes into one global count per dose.
+cb_summary <- plyr::ddply(cb_perchan, .(numStims), summarize,
+  n_cells         = length(perm_p),
+  n_subjects      = length(unique(sid)),
+  n_channels      = length(unique(paste(sid, channel_raw))),
+  n_sig_uncorr    = sum(sig_uncorr),
+  pct_sig_uncorr  = round(100 * mean(sig_uncorr), 1),
+  n_sig_fdr       = sum(sig_fdr),
+  pct_sig_fdr     = round(100 * mean(sig_fdr), 1),
+  median_effect   = round(median(obs_diff), 1),
+  mean_effect     = round(mean(obs_diff), 1))
+cb_summary$numStims <- factor(cb_summary$numStims, levels = doses_cb)
+cb_summary <- cb_summary[order(cb_summary$numStims), ]
+
+cat("\nPer-dose summary (within-subject FDR, collapsed across subjects):\n")
+print(cb_summary)
+
+# --- Pooled (secondary) summary for sensitivity check ---
+cb_summary_pooled <- plyr::ddply(cb_perchan, .(numStims), summarize,
+  n_cells         = length(perm_p),
+  n_sig_uncorr    = sum(sig_uncorr),
+  pct_sig_uncorr  = round(100 * mean(sig_uncorr), 1),
+  n_sig_fdr_pooled  = sum(sig_fdr_pooled),
+  pct_sig_fdr_pooled = round(100 * mean(sig_fdr_pooled), 1))
+cb_summary_pooled$numStims <- factor(cb_summary_pooled$numStims, levels = doses_cb)
+cb_summary_pooled <- cb_summary_pooled[order(cb_summary_pooled$numStims), ]
+
+cat("\nPooled-FDR sensitivity summary per dose:\n")
+print(cb_summary_pooled)
+
+# --- Overlap with 5a-gf2 channels (internal consistency check) ---
+if (exists("summaryNB_gf2")) {
+  gf2_keys <- unique(paste(summaryNB_gf2$sid, summaryNB_gf2$channel,
+                           summaryNB_gf2$phaseDeg_round, sep = "|"))
+  cb_perchan$in_5agf2 <- paste(cb_perchan$sid, cb_perchan$channel_raw,
+                                cb_perchan$phaseDeg_round, sep = "|") %in% gf2_keys
+  sig_hi <- cb_perchan[cb_perchan$sig_fdr & cb_perchan$numStims == "[5,inf)", ]
+  cat(sprintf("\n[5,inf) FDR-sig cells also in 5a-gf2 good-fit subset: %d of %d\n",
+      sum(sig_hi$in_5agf2), nrow(sig_hi)))
+}
+
+# --- Forest plot: all subjects, faceted by dose ---
+# Colored by within-subject FDR (primary; channels nested within subjects).
+# Pooled FDR is retained as a CSV column (perm_q_pooled) but not plotted —
+# on this dataset it was near-identical to within-subject and added no info.
+# Rows sorted by measured phase (0 at top), with subject as tie-breaker.
+# Channel labels strip the subject-number prefix (e.g., 714 -> 14).
+# Beta trigger channels highlighted via pink y-axis tick labels.
+
+cb_perchan$numStims_f <- factor(cb_perchan$numStims, levels = doses_cb)
+# Raw channel number (strip subjectNum*100 prefix)
+cb_perchan$channel_disp <- as.integer(as.character(cb_perchan$channel_raw)) %% 100
+# Coded sid -> "Subject N" label using the subjectNum column carried in `data`
+sid_num_map <- setNames(
+  as.integer(as.character(unique(data[, c("sid", "subjectNum")])$subjectNum)),
+  as.character(unique(data[, c("sid", "subjectNum")])$sid))
+cb_perchan$subj_label <- sprintf("Subject %d",
+  sid_num_map[as.character(cb_perchan$sid)])
+cb_perchan$cell_label <- sprintf("%s Ch%d @ %.0f\u00b0",
+                                  cb_perchan$subj_label,
+                                  cb_perchan$channel_disp,
+                                  cb_perchan$phaseDeg_round)
+
+# Sort by phase ascending (0 at top); ggplot draws first factor level at the
+# bottom, so rev() puts the smallest phase at the top of the y-axis.
+row_order <- unique(cb_perchan[
+  order(cb_perchan$phaseDeg_round, as.character(cb_perchan$sid)),
+  "cell_label"])
+cb_perchan$cell_label <- factor(cb_perchan$cell_label, levels = rev(row_order))
+
+# --- Flag beta-trigger channels for highlighting (pink override) ---
+# Beta reference channels per subject (from CLAUDE.md table).
+beta_ref_map <- data.frame(
+  sid      = c("d5cd55","c91479","7dbdec","9ab7ab","702d24","ecb43e","0b5a2e"),
+  beta_raw = c(53,       64,      4,       51,      5,       55,      31),
+  stringsAsFactors = FALSE)
+cb_perchan$is_beta_ref <- mapply(function(s, c_raw) {
+  row <- beta_ref_map[beta_ref_map$sid == s, ]
+  if (nrow(row) == 0) return(FALSE)
+  c_raw == row$beta_raw
+}, as.character(cb_perchan$sid), cb_perchan$channel_disp)
+
+# --- Color category: within-subject FDR (primary) ---
+# Significance drives the dot/error-bar color; beta-trigger rows are flagged
+# only via the pink y-axis tick label (set below).
+cb_perchan$color_cat <- factor(
+  ifelse(cb_perchan$sig_fdr, "FDR q<0.05 (within subj)",
+    ifelse(cb_perchan$sig_uncorr, "p<0.05 uncorr", "ns")),
+  levels = c("ns", "p<0.05 uncorr", "FDR q<0.05 (within subj)"))
+
+# --- Y-axis label colors: pink for beta-trigger rows, black otherwise ---
+# element_text() accepts a vector of colors applied in factor-level order
+# (for our factor that's bottom-to-top). Build from the sorted levels so the
+# mapping matches the plotted y-axis ticks exactly.
+is_beta_by_level <- sapply(levels(cb_perchan$cell_label), function(lbl) {
+  any(cb_perchan$is_beta_ref & cb_perchan$cell_label == lbl)
+})
+y_label_colors_cb <- ifelse(is_beta_by_level, "deeppink3", "black")
+
+p_cb_forest <- ggplot(cb_perchan,
+    aes(y = cell_label, x = obs_diff, color = color_cat)) +
+  theme_light(base_size = 17) +
+  facet_wrap(~ numStims_f, nrow = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lo_ci, xmax = hi_ci),
+                 height = 0.28, linewidth = 0.7) +
+  geom_point(size = 2.8) +
+  scale_color_manual(
+    values = c("ns" = "grey60",
+               "p<0.05 uncorr" = "orange",
+               "FDR q<0.05 (within subj)" = "red"),
+    drop = FALSE, name = "") +
+  labs(x = expression(paste("Median Conditioned - Baseline (", mu,
+                            "V) with 95% bootstrap CI")),
+       y = "",
+       title = "Per-cell EP modulation from baseline across subjects",
+       subtitle = sprintf(
+         "%d cells, %d subjects. BH FDR within (subject x dose). Pink y-axis labels = beta trigger channel.",
+         nrow(cb_perchan), length(unique(cb_perchan$sid)))) +
+  theme(legend.position = "bottom",
+        legend.text  = element_text(size = 15),
+        axis.text.y  = element_text(size = 13, color = y_label_colors_cb),
+        axis.text.x  = element_text(size = 15),
+        axis.title.x = element_text(size = 16),
+        plot.title   = element_text(size = 19, face = "bold"),
+        plot.subtitle = element_text(size = 14),
+        strip.text   = element_text(size = 16, face = "bold"))
+
+if (savePlot) {
+  ggsave(here("output_plots", "betaStim_cond_vs_base_forest.png"),
+         plot = p_cb_forest,
+         units = "in", width = 16, height = 16, dpi = 600)
+  ggsave(here("output_plots", "betaStim_cond_vs_base_forest.eps"),
+         plot = p_cb_forest,
+         units = "in", width = 16, height = 16, dpi = 600, device = cairo_ps)
+}
+
+# ========================================================================
 # Null-burst probes vs Baseline permutation test (within-subject control)
 # ------------------------------------------------------------------------
 # 0b5a2e has a "null burst" condition (sham bursts; nullType=3 in the
@@ -1526,6 +1871,15 @@ write_summary_csv(perm_perchan_export, "betaStim_clpb_perm_perchan_bycell")
 if (nrow(nb_perchan) > 0)  write_summary_csv(nb_perchan,  "betaStim_null_vs_base_perchan")
 if (nrow(nb_per_subj) > 0) write_summary_csv(nb_per_subj, "betaStim_null_vs_base_aggregate")
 
+# Conditioned vs Baseline per-cell permutation + FDR tables
+if (exists("cb_perchan") && nrow(cb_perchan) > 0) {
+  write_summary_csv(cb_perchan,        "betaStim_cond_vs_base_perchan")
+  write_summary_csv(cb_subj_fdr,       "betaStim_cond_vs_base_per_subject")
+  write_summary_csv(cb_subj_presence,  "betaStim_cond_vs_base_subject_presence")
+  write_summary_csv(cb_summary,        "betaStim_cond_vs_base_summary")
+  write_summary_csv(cb_summary_pooled, "betaStim_cond_vs_base_pooled_summary")
+}
+
 # ========================================================================
 # Export all tables to .docx
 # ========================================================================
@@ -1606,6 +1960,66 @@ if (require(officer) && require(flextable)) {
   ft <- flextable(pct_chan) |> autofit() |>
     set_caption("Percent change per channel per dose. baseMedian = channel baseline (uV), mag = conditioned median (uV).")
   doc <- body_add_flextable(doc, ft)
+  doc <- body_add_par(doc, "")
+
+  # --- Conditioned vs Baseline: per-cell permutation + FDR ---
+  if (exists("cb_perchan") && nrow(cb_perchan) > 0) {
+    doc <- body_add_par(doc,
+      "Conditioned vs Baseline: Per-Cell Permutation + Within-Subject FDR",
+      style = "heading 1")
+    doc <- body_add_par(doc,
+      paste("Per-cell two-sample label-shuffle permutation (10,000 MC",
+            "iterations, median difference statistic) of conditioned probe",
+            "magnitudes vs channel baseline magnitudes, at each dose separately.",
+            "Cell = (subject x channel x phaseDeg_round).",
+            "Inclusion: channel-level phaseVecLength >= 0.2 (matches 5a-gf2),",
+            ">=10 baseline probes, >=5 conditioned probes.",
+            "BH FDR correction applied within (subject x dose) family because",
+            "channels are nested within subjects."),
+      style = "Normal")
+
+    # Per-dose cell-count summary (collapses subjects; uses within-subject FDR)
+    doc <- body_add_par(doc, "Per-dose cell-count summary",
+                        style = "heading 2")
+    ft <- flextable(cb_summary) |> autofit() |>
+      set_caption(paste("Cells across subjects by dose. n_sig_uncorr = cells with",
+                        "raw permutation p < 0.05. n_sig_fdr = cells surviving",
+                        "Benjamini-Hochberg FDR (q < 0.05) applied within each",
+                        "(subject x dose) family. Percentages are over n_cells."))
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+
+    # Across-subject summary (subject-level presence)
+    doc <- body_add_par(doc, "Subject-level presence summary per dose",
+                        style = "heading 2")
+    ft <- flextable(cb_subj_presence) |> autofit() |>
+      set_caption(paste("Subject-level summary. n_subj_any_fdr = count of",
+                        "subjects with >=1 FDR-significant cell at each dose.",
+                        "median_pct_sig_fdr = median across subjects of the",
+                        "per-subject fraction modulated."))
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+
+    # Per-subject breakdown
+    doc <- body_add_par(doc, "Per-subject cell counts", style = "heading 2")
+    ft <- flextable(cb_subj_fdr) |> autofit() |>
+      set_caption(paste("Per-subject x dose: cells tested, cells significant",
+                        "at uncorrected p<0.05 and at FDR q<0.05",
+                        "(correction family = subject's cells at that dose)."))
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+
+    # Pooled FDR sensitivity
+    doc <- body_add_par(doc,
+      "Pooled-FDR sensitivity (secondary)", style = "heading 2")
+    ft <- flextable(cb_summary_pooled) |> autofit() |>
+      set_caption(paste("Pooled BH FDR across all cells within each dose",
+                        "(ignores subject clustering). Reported as a",
+                        "sensitivity check alongside the primary",
+                        "within-subject FDR results above."))
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+  }
 
   docx_path <- here("output_plots", "betaStim_within_subject_tables.docx")
   print(doc, target = docx_path)
