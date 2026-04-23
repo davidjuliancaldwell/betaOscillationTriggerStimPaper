@@ -16,7 +16,7 @@ shuffleSigPP = 0;
 rerefMode = 'median';
 
 %%
-for idx = 1:1
+for idx = 1:8
     sid = SIDS{idx};
     % defaults for peak-to-peak extraction (overridden per subject as needed)
     ppOpt = 'abs';
@@ -154,21 +154,23 @@ for idx = 1:1
     ZscoredDataForAnova = {};
     
     %% do referencing on list of channels
-    
+
+    prev_grp = -1;  % sentinel: force load on first iteration regardless of caller state
     for chan = rerefChans
-        
+
         %% load in ecog data for that channel
         fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
         tic;
-        
+
         grp = floor((chan-1)/16);
         ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
-        
-        if achan==1 || achan == 2 || achan == 4 || achan == 6
+
+        if grp ~= prev_grp
             load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
+            prev_grp = grp;
         end
         eco = dataStruct.data(:,achan);
         eco = 4*eco';
@@ -224,19 +226,21 @@ for idx = 1:1
     %% now do peak to peak
     % set statistical threshold
     statThresh = length(chans);
-    
+
+    prev_grp = -1;  % sentinel: force load on first iteration regardless of caller state
     for chan = chans
         fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
         tic;
-        
+
         grp = floor((chan-1)/16);
         ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
-        
-        if achan==1 || achan == 2
+
+        if grp ~= prev_grp
             load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
+            prev_grp = grp;
         end
         eco = dataStruct.data(:,achan);
         eco = 4*eco';

@@ -47,10 +47,10 @@ betaChan = info{7};
 % EP measurement window per subject (must match B_ExtractNeuralData_PP_reref.m)
 tminMap = containers.Map(...
     {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'}, ...
-    {0.006, 0.006, 0.006, 0.006, 0.00323, 0.006, 0.005, 0.005});
+    {0.006, 0.005, 0.007, 0.006, 0.00323, 0.006, 0.005, 0.005});
 tmaxMap = containers.Map(...
     {'d5cd55','c91479','7dbdec','9ab7ab','702d24','ecb43e','0b5a2e','0b5a2ePlayback'}, ...
-    {0.06, 0.06, 0.06, 0.06, 0.025, 0.06, 0.06, 0.06});
+    {0.06, 0.036, 0.048, 0.06, 0.025, 0.06, 0.06, 0.06});
 info_tmin = tminMap(sid);
 info_tmax = tmaxMap(sid);
 
@@ -117,13 +117,15 @@ fac = fs / efs;
 % build re-referencing signal from median of reref channels
 fprintf('Building median re-reference from %d channels...\n', length(rerefChans));
 rerefData = [];
+prev_grpR = -1;  % sentinel: force load on first iteration regardless of outer state
 for rc = rerefChans
     grpR = floor((rc-1)/16);
     evR = sprintf('ECO%d', grpR+1);
     achanR = rc - grpR*16;
-    if achanR == 1 || achanR == 2
+    if grpR ~= prev_grpR
         load(fullfile(folderECoGData, [sid '_ECoG.mat']), evR);
         dataStruct = eval(evR);
+        prev_grpR = grpR;
     end
     rerefData(end+1,:) = 4 * dataStruct.data(:, achanR)';
 end
@@ -221,6 +223,39 @@ else
     statLabel = 'mean';
 end
 
+%% channel-level inclusion check (matches multipleSubj_GLMM_script_PP.m:185)
+% Channels with mean Base PP < 100 uV are dropped from the R analysis.
+tMaskBase = t >= info_tmin & t <= info_tmax;
+baseIdx = find(isBaseline);
+basePPall = nan(1, length(baseIdx));
+for bi = 1:length(baseIdx)
+    bw = wins(tMaskBase, baseIdx(bi));
+    try
+        bs = sgolayfilt_complete(bw, smoothOrder, smoothFramelen);
+        [ba, ~, ~] = peak_to_peak_beta_stim(bs, ppOpt, ppMinPeakDist);
+        if ~isempty(ba), basePPall(bi) = ba * 1e6; end
+    catch
+    end
+end
+baseMeanPP = mean(basePPall, 'omitnan');
+baseMedianPP = median(basePPall, 'omitnan');
+epThresholdMag = 100;
+isExcluded = ~(baseMeanPP >= epThresholdMag);
+if isExcluded
+    inclusionTag = sprintf('[EXCLUDED from R analysis: mean Base PP %.1f < %d \\muV threshold]', ...
+        baseMeanPP, epThresholdMag);
+else
+    inclusionTag = sprintf('[INCLUDED: mean Base PP %.1f \\geq %d \\muV]', ...
+        baseMeanPP, epThresholdMag);
+end
+if isExcluded
+    inclusionPrintStr = 'EXCLUDED';
+else
+    inclusionPrintStr = 'INCLUDED';
+end
+fprintf('Channel inclusion: mean Base PP = %.1f uV (median %.1f), threshold %d -> %s\n', ...
+    baseMeanPP, baseMedianPP, epThresholdMag, inclusionPrintStr);
+
 %% plot: individual trials (gray) + peak/trough markers + average overlay
 % Layout: rows = phase x filter, columns = dose levels (4: Base, [1,2], [3,4], [5,inf))
 doseNames = {'Base', '[1,2]', '[3,4]', '[5,inf)'};
@@ -315,8 +350,12 @@ for phIdx = 1:nPhases
         end
     end
 end
-sgtitle(sprintf('%s ch%d — individual trials + %s EP with peak/trough markers', ...
-    sid, chanInt, statLabel), 'FontSize', 13);
+titleColor = [0 0 0];
+if isExcluded
+    titleColor = [0.7 0 0];
+end
+sgtitle(sprintf('%s ch%d — individual trials + %s EP with peak/trough markers\n%s', ...
+    sid, chanInt, statLabel, inclusionTag), 'FontSize', 13, 'Color', titleColor);
 
 %% save
 if opts.saveIt

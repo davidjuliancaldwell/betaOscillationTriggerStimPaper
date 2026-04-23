@@ -37,6 +37,22 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
 3. **C: Aggregation & visualization** -- `multipleSubj_GLMM_script_PP.m` combines EP and phase data into CSV tables in `data/output_table/`, then plotting scripts generate figures
 4. **R: Statistical modeling** -- Linear mixed effects models (LME4) with subject/channel random effects on the output CSV
 
+### Re-reference / ECO-loading bugs: fixed 2026-04-21
+
+All ECO-struct loading loops that used the narrow `achan ∈ {1,2}` or wider `achan ∈ {1,2,4,6}` "heuristic reload gate" have been replaced with a direct `grp ≠ prev_grp` group-change detector (initialized `prev_grp = -1` to force the first-iteration load). Affected files:
+
+- `peak_extraction/B_ExtractNeuralData_PP_reref.m` (both loops, lines 158 and 228)
+- `phase_visualizations/B_phaseCalc_allChans_processed.m` (loop at line 90; also removed debug `chans = 64;` override at line 59, restored `idxVec = [1:8]`, fixed save filename `12samps → 51samps`)
+- `manuscript_generate_scripts/plot_EP_goodfit_by_phase.m` (reref loop, line 120)
+- `manuscript_generate_scripts/BETA_ExtractNeuralDataCEPscreen.m` (both loops)
+- `manuscript_generate_scripts/plot_example_dose_dependent_time_series.m` (reref loop)
+
+Also restored `B_ExtractNeuralData_PP_reref.m` line 19 `for idx = 1:1` (debug override) → `for idx = 1:8` (all subjects).
+
+**Verification**: EP pipeline regenerated for c91479; CSV float-identical (≤1e-12 µV) to pre-fix across all analyzed channels, confirming the bug was latent for the channels that actually entered the analysis. Primary R models (5a, 5a-gf2) reproduce CLAUDE.md numbers exactly. The `phase_data/*.mat` files were NOT regenerated — the Dec 2018 hyak-cluster files remain canonical. With the debug hardcodes removed, regenerating phase data is now safe (just slow — hours for the nonlinear sinusoid fits).
+
+See `phase_data_origin_and_bugs.md` for the full diagnosis, safe-subject matrix, and verification details. Full pre-fix data backup at `data/_backup_20260421_161313/`.
+
 ## Key Configuration
 
 - `setup_environment.m` / `Z_Constants.m`: Define subject IDs (SIDS), folder paths for all data directories. Both files set the same variables; `setup_environment.m` is called by `master_script_betaStim.m`.
@@ -48,7 +64,7 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
 
 - `ECoG_data/` -- Raw ECoG recordings (gitignored, symlinked from OneDrive: `OneDrive-UCSF/Research/UW_research/betastim/Data-from-xps/ECoG_data`). Contains `{sid}_ECoG.mat` and `{sid}_forBetaPhase.mat` per subject.
 - `stim_timing_data/` -- Stimulation timing tables (stage A output)
-- `phase_data/` -- Phase calculation results per subject/channel (stage B output)
+- `phase_data/` -- Phase calculation results per subject/channel (stage B output). **Dec 2018 hyak-generated; do not regenerate without reading `phase_data_origin_and_bugs.md`.**
 - `EP_data/` -- Peak-to-peak evoked potentials (stage B output)
 - `output_table/` -- CSV tables for R analysis (stage C output). Multiple threshold variants (30, 50, 100 uV minimum)
 - `coordinates/` -- Subject-specific MRI electrode coordinates (at repo root level)
@@ -61,7 +77,7 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
   - **Trial-level** (R, `betaStim_R_script.R:36-37`): exclude individual trials with magnitude < 25 uV or > 1500 uV. Removes artifacts and non-responses.
 - Phase binning: 45-degree bins (8 bins per cycle)
 - Dose levels: Base, [1,2], [3,4], [5,inf) conditioning stimuli
-- Phase classes: depolarizing (90°) vs hyperpolarizing (270°)
+- Phase classes: **hyperpolarizing (90°) vs depolarizing (270°)** — per Zanos et al. convention (Curr Biol 2018, PIIS0960982218309084.pdf). *Earlier docs had the labels reversed; this is the correct convention for the manuscript.*
 - All cell summaries use **median** (magnitude, absDiff, percentDiff, baseline). Median is robust to right-skewed EP distributions (overall skew=1.41). Permutation tests also use median as test statistic.
 
 ## Code Organization
@@ -87,6 +103,16 @@ The pipeline runs in lettered stages (A, B, C) that must execute in order:
 
 ## Statistical Models
 
+### Contrast coding (global)
+
+Both `R_analysis_scripts/betaStim_R_script.R` and `R_analysis_scripts/R_compare_control_cond.R` set `options(contrasts = c("contr.sum", "contr.poly"))` at the top. This applies **sum-to-zero** coding to unordered factors (`phaseClass`, `betaLabels`, `numStims` when unordered) and polynomial coding to ordered factors (`numStims_ord`). Required for `anova(fit)` / `anova(fit, type = 3)` Type III tests to yield **marginal** main effects in models with interactions, rather than effects conditional on a reference level.
+
+**Empirical impact** (verified by running the full script once with each coding, same data):
+- **Models 5a / 5a-gf2**: *no change at all*. Coefficients, F-values, and p-values are byte-identical between contr.treatment and contr.sum. `numStims_ord` already uses `contr.poly`, sin/cos are continuous, and `betaLabels` is a simple main effect (not in an interaction) — none of the conditions that make Type III coding-dependent are present.
+- **Models 3a–3e, 5c**: interaction p-values shift meaningfully (3c/3d/3e: ~0.86 → ~0.98) because under the old default (contr.treatment) the Type III "interaction" was conditional on the reference level of `phaseClass`. Dose main effects essentially unchanged.
+
+contr.sum is retained even though it doesn't move 5a/5a-gf2 — it's the correct default for Type III interpretation and future-proofs any model that gains an unordered-factor interaction.
+
 ### Primary models (for manuscript)
 
 **The primary inferential models are 5a and 5a-gf2** (continuous circular phase). They supersede Models 3a-3e (binary 90/270 phaseClass) for these reasons:
@@ -100,9 +126,9 @@ Per-cell permutation tests (`R_compare_control_cond.R`, see "Within-subject anal
 
 ### Primary: 5a and 5a-gf2 (continuous circular phase)
 
-See "Model 5" subsection below for full specification. Key points:
-- **5a**: channel-level phase, phaseVecLength ≥ 0.3, 78 obs, 19 channels. Dose.L p = 0.068 (trend).
-- **5a-gf2**: good-fit burst restriction + channel-level phase, phaseVecLength ≥ 0.2, 102 obs, 25 channels. Dose.L p = 0.049. Effect size 8.6 µV.
+See "Model 5" subsection below for full specification. Key points (results are the same under contr.treatment or contr.sum — verified):
+- **5a**: channel-level phase, phaseVecLength ≥ 0.3, 78 obs, 19 channels. numStims_ord.L p = 0.068 (trend, summary t-test); Type III omnibus dose F p = 0.123; cos_phase p = 0.090.
+- **5a-gf2**: good-fit burst restriction + channel-level phase, phaseVecLength ≥ 0.2, 102 obs, 25 channels. numStims_ord.L p = 0.053 (trend, summary t-test); Type III omnibus dose F p = 0.061; cos_phase p = 0.098. Effect size ~8.1 µV.
 
 ### Supporting: Models 3a-3e (binary phaseClass, summary-level)
 
@@ -139,19 +165,21 @@ Key data structure notes:
 - `numStims` (dose) varies trial-to-trial within a channel — real trial-level predictor
 - `phaseClass` is a channel-level constant — the circular mean of phase-at-delivery, binned to 90/270
 - Channel IDs are unique per subject (subjectNum*100 + raw channel), so `(1|channel)` implicitly nests within subject
-- Models 3a-3e: 7 subjects, 31 channels, 120 summary observations (no baseline) or 151 (with baseline). Grouping by (sid, channel, phaseClass, numStims).
+- Models 3a-3e: 7 subjects, 32 channels, 126 summary observations (no baseline) or ~157 (with baseline). Grouping by (sid, channel, phaseClass, numStims).
 - Models 5a/5a-gf2: 7 subjects, 32 channels, 141 summary obs pre-filter (grouping by phaseDeg_round allows multiple measured phases per channel)
 - `doseNum` is a numeric encoding of the dose factor; `dose_linpoly` = `contr.poly(3)[,1]` is an equivalent linear rescaling used with ordinal models
 - None of the five primary models are singular
 
-Model comparison (all on median, after phaseClass fix):
+Model comparison (all on median, under contr.sum/contr.poly; Type III ANOVA):
 
 | Model | AIC | Dose p | Interaction p |
 |-------|-----|--------|---------------|
-| 3a (absDiff, no slopes) | 910 | **~0.0002** | ~0.86 |
-| 3c (ANCOVA, categorical) | 912 | 0.188 | 0.859 |
-| 3d (ordinal, .L only) | 914 | 0.188 | 0.616 |
-| 3e (numeric, linear) | 917 | 0.106 | 0.615 |
+| 3a (absDiff, no slopes) | 961 | **0.00037** | 0.966 |
+| 3c (ANCOVA, categorical) | 961 | 0.214 | 0.980 |
+| 3d (ordinal, .L only) | 959 | 0.214 | 0.980 |
+| 3e (numeric, linear) | 961 | 0.109 | 0.981 |
+
+Note: Under the prior contr.treatment default, interaction p-values for 3c/3d/3e were ~0.6–0.86 because the Type III "interaction" was conditional on the reference level of `phaseClass`. After contr.sum, the interactions are essentially null (~0.97–0.98), consistent with the consistent "no dose×phase interaction" conclusion. Dose main effects are essentially unchanged.
 
 ### Model 5: Continuous circular phase (sin/cos decomposition)
 
@@ -184,16 +212,42 @@ fit.sincos.ordinal.gf2 = lmer(magnitude ~ numStims_ord * (sin_phase + cos_phase)
 
 Default filter thresholds: `minPhaseVecLength_5a = 0.3`, `minPhaseVecLength_gf2 = 0.2`, `minGoodBetaPerBurst = 1`, `minBurstVecLength_gf = 0`.
 
-Model 5 results:
-- **5a** (78 obs, 19 ch): Dose.L p=**0.068** (trend), cos_phase p=**0.090** (trend). Effect size 6.4 µV.
-- **5a-gf** (96 obs, intercepts only): Dose.L p=0.047 — **anti-conservative**. Sensitivity check only.
-- **5a-gf2** (102 obs, 25 ch): Dose.L p=**0.049**, sin_phase p=0.19, cos_phase p=0.13. Effect size 8.6 µV.
+Model 5 results (under contr.sum/contr.poly):
+- **5a** (78 obs, 19 ch): numStims_ord.L p=**0.068** (trend, summary t), Type III dose F p=0.123; sin_phase p=0.29, cos_phase p=**0.090** (trend). Effect size ~6.4 µV.
+- **5a-gf** (96 obs, intercepts only): numStims_ord.L p≈0.05 — **anti-conservative**. Sensitivity check only.
+- **5a-gf2** (102 obs, 25 ch): numStims_ord.L p=**0.053** (marginal, summary t), Type III dose F p=0.061; sin_phase p=0.19, cos_phase p=**0.098** (trend). Effect size ~8.1 µV.
 
 Sensitivity analysis (`output_plots/betaStim_phase_quality_sensitivity.csv`): Models 5a and 5a-gf2 fit at r ∈ {0, 0.1, 0.2, 0.3, 0.4}. Dose effect strengthens monotonically with r.
 
-ANCOVA rationale: `baselineMag_c` (grand-mean-centered baseline median per channel) absorbs ~10-fold between-channel variance. Baseline trials excluded to avoid baseline-by-phase confound. `betaLabels` (1=beta reference channel) included as additive fixed effect — consistently non-significant (p=0.16-0.55).
+ANCOVA rationale: `baselineMag_c` (grand-mean-centered baseline median per channel) absorbs ~10-fold between-channel variance. Baseline trials excluded to avoid baseline-by-phase confound. `betaLabels` (1=beta reference channel) included as additive fixed effect — consistently non-significant (p≈0.5–0.7 under contr.sum).
 
 Effect sizes: `d_total = estimate / sqrt(Var_int + E[x²]*Var_slope + Var_channel + Var_resid)`, where E[x²]=1/3 for `contr.poly(3)`.
+
+### Average Marginal Effects (AME) complement — added 2026-04-22
+
+`marginaleffects::avg_comparisons()` added as a complement to the at-90°/at-270° emmeans contrasts for Models 5a and 5a-gf2. Answers a different question: the at-90°/at-270° EMMs evaluate the dose effect at two specific phases (sin=±1, cos=0); the AME averages pairwise dose contrasts over the **observed joint distribution** of sin_phase, cos_phase, baselineMag_c, and betaLabels — the phase-weighted population-level dose effect.
+
+```r
+ame_5a_raw <- avg_comparisons(fit.sincos.ordinal,
+  variables = list(numStims_ord = "pairwise"))
+ame_5a_adj <- hypotheses(ame_5a_raw, multcomp = "single-step")   # max-t FWER
+```
+
+Same pattern for `fit.sincos.ordinal.gf2` → `ame_gf2_dose`. Multiplicity: `multcomp = "single-step"` (multcomp::glht max-t) — the closest available analog to the Tukey-Kramer adjustment used by neighboring emmeans `pairs()` output. marginaleffects 0.29 does not expose `"tukey"` directly. Inference uses fixed-effect covariance only (standard behavior for `lmerMod` under `re.form = NA`), consistent with `emmeans` defaults for these models.
+
+AME results (single-step adjusted, under default phase-quality filters):
+
+| Contrast | 5a estimate (µV) | 5a p (adj) | 5a-gf2 estimate (µV) | 5a-gf2 p (adj) |
+|----------|------------------|------------|----------------------|----------------|
+| [3,4] − [1,2] | 5.18 | 0.221 | 2.28 | 0.801 |
+| [5,inf) − [1,2] | **9.09** | **0.052** | **11.01** | **0.048** |
+| [5,inf) − [3,4] | 3.91 | 0.422 | **8.73** | **0.041** |
+
+These converge on the at-90°/at-270° estimates and reinforce the dose effect without relying on two specific phase anchors.
+
+**Dose-effect-vs-phase curves** (`marginaleffects::avg_comparisons()` inside a `lapply` over phase angles, paired sin/cos): new figures `output_plots/betaStim_model5a_phase_curve_r30_dose_effect_vs_phase.{png,eps}` and `betaStim_model5a_gf2_phase_curve_r20_dose_effect_vs_phase.{png,eps}`. Y-axis is the pairwise dose contrast (µV); x-axis is delivered phase (0–330° in 30° steps); one line per contrast with pointwise 95% CI ribbon. Complementary to the emmeans-based phase-response curves which show predicted **magnitude** at each phase × dose.
+
+**emmeans plot marginalization fix (2026-04-22)**: The primary single-panel phase-response curves (`p_5a`, `p_5a_gf2`) previously pinned `betaLabels = "0"` (non-beta channels only). They now use `weights = "proportional"` so emmeans marginalizes over `betaLabels` using observed proportions — matches the AME/G-computation semantics and makes the single-panel plots population-level rather than non-beta-specific. Faceted supplementary plots (`p_5a_beta`, `p_5a_gf2_beta`) still show both `betaLabels` levels side-by-side. `baselineMag_c = 0` retained in the `at=...` spec because the covariate is grand-mean centered and enters linearly with no interactions → pinning at 0 is mathematically identical to averaging over the observed distribution (E[baselineMag_c] = 0 by construction). Subtitles reworded from "baselineMag_c = 0" to "baseline at grand mean" for clarity.
 
 ### Model 6: Continuous dose spline (EXPLORATORY)
 
@@ -251,7 +305,7 @@ Models 3a-3e, 5a-5c: Shapiro-Wilk normality test, skewness/kurtosis, QQ plots (`
 
 ## Manuscript .docx Export
 
-`output_plots/betaStim_statistical_tables.docx` (from `betaStim_R_script.R`): residual diagnostics table, model comparison (AIC/BIC), ANOVA tables, EMM pairwise contrasts, Cohen's d effect sizes for models 3a, 3c, 3e, 5a.
+`output_plots/betaStim_statistical_tables.docx` (from `betaStim_R_script.R`): residual diagnostics table, model comparison (AIC/BIC), ANOVA tables, EMM pairwise contrasts, Cohen's d effect sizes for models 3a, 3c, 3e, 5a, and — added 2026-04-22 — AME pairwise dose contrasts for Models 5a and 5a-gf2 (single-step max-t corrected, phase-marginalized population-level complement to the at-90°/at-270° EMM contrasts).
 
 `output_plots/betaStim_within_subject_tables.docx` (from `R_compare_control_cond.R`): CL vs PB ANOVA, ecb43e ANOVA, sign-flip permutation tables (exact + MC), null-burst validity tables, percent modulation tables, conditioned-vs-baseline per-cell permutation tables (across-subject summary, per-subject breakdown, pooled-FDR sensitivity).
 
@@ -275,5 +329,5 @@ CSV outputs in `output_plots/`: `betaStim_clpb_perm_chan_aggregate.csv`, `betaSt
 | Null vs Base aggregated (0b5a2e) | channel | 8 | Exact sign-flip (2^8 = 256) | none |
 | clpb channel × condition aggregated | channel × phase cell | 13–16 per dose | Exact sign-flip (2^13–2^16) | Holm across 3 doses |
 | Null vs Base per channel | trial | ~410 | Two-sample MC 10k | descriptive |
-| clpb per-cell sign-flip | probe pair | ~30–100 | Sign-flip MC 10k | descriptive |
+| clpb per-cell sign-flip | probe pair | ~30–100 | Sign-flip MC 10k | BH within dose (3 families of ~13–16 cells) |
 | Conditioned vs Baseline per-cell | trial | ~50–200 cond vs ~40–60 base | Two-sample MC 10k | BH within (subj × dose); pooled within dose as sensitivity |

@@ -2,6 +2,162 @@
 
 ## Completed
 
+### marginaleffects AME complement + dose-effect-vs-phase plots (2026-04-22)
+
+#### Motivation
+
+`emmeans::emmeans(fit, at = list(sin_phase = 1, cos_phase = 0, ...))` evaluates the dose effect at two specific phases (90°, 270°). A reviewer could reasonably ask "but what about all the other phases the study sampled?". `marginaleffects::avg_comparisons()` answers that by averaging pairwise dose contrasts over the **observed joint distribution** of sin_phase, cos_phase, baselineMag_c, and betaLabels — the phase-weighted population-level dose effect (G-computation / Average Marginal Effect).
+
+#### Additions to `betaStim_R_script.R`
+
+1. **Library**: added `library('marginaleffects')` (version 0.29.0 installed).
+
+2. **AME numeric blocks** (after Model 5a effect sizes at line ~1285, after Model 5a-gf2 effect sizes at ~1867):
+   ```r
+   ame_5a_raw <- avg_comparisons(fit.sincos.ordinal,
+     variables = list(numStims_ord = "pairwise"))
+   ame_5a_adj <- as.data.frame(hypotheses(ame_5a_raw, multcomp = "single-step"))
+   ame_5a_adj$contrast <- as.data.frame(ame_5a_raw)$contrast
+   ame_5a_dose <- ame_5a_adj[, c("term", "contrast", ...)]
+   ```
+   Same pattern for `ame_gf2_dose`. `hypotheses(multcomp = "single-step")` applies multcomp::glht max-t adjustment (FWER control via the joint multivariate-t distribution) — the closest analog to Tukey-Kramer available in marginaleffects 0.29. `hypotheses()` drops the `contrast` label column, so it's reattached from the raw object.
+
+3. **Dose-effect-vs-phase plots** (after `p_5a`/`p_5a_gf2` ggsave blocks):
+   ```r
+   cmp_5a_curve_df <- do.call(rbind, lapply(phase_vals_curve, function(ph) {
+     nd <- summaryNB_m5
+     nd$sin_phase <- sin(ph * pi / 180)
+     nd$cos_phase <- cos(ph * pi / 180)
+     df <- as.data.frame(avg_comparisons(fit.sincos.ordinal,
+       variables = list(numStims_ord = "pairwise"),
+       newdata = nd, re.form = NA))
+     df$phase_deg <- ph
+     df
+   }))
+   ```
+   At each of 12 phase angles (0–330° in 30° steps), override sin/cos on the observed data and compute AME. Verified numerically identical to the canonical `datagrid(grid_type = "counterfactual") + by=` marginaleffects idiom (|est diff| = 0, |SE diff| = 5e-17 on a toy model) — the loop is needed only because `phase_deg` isn't a model predictor and the sin/cos pairing would otherwise cross-product into 144 off-unit-circle combinations. New output files:
+   - `output_plots/betaStim_model5a_phase_curve_r30_dose_effect_vs_phase.{png,eps}`
+   - `output_plots/betaStim_model5a_gf2_phase_curve_r20_dose_effect_vs_phase.{png,eps}`
+
+4. **docx AME flextables**: added `render_ame_contrasts()` helper; new sections "AME Dose Contrasts (marginalized over observed phase)" inserted into `betaStim_statistical_tables.docx` after the existing EMM phase-contrast tables for each primary model.
+
+#### Emmeans plot marginalization fix
+
+The primary single-panel phase-response curves (`p_5a`, `p_5a_gf2`) previously pinned `betaLabels = "0"` in the `at = ...` spec — so they showed the non-beta-channel phase-response, not a population-level curve. Now use `weights = "proportional"` so emmeans marginalizes over `betaLabels` using observed proportions:
+
+```r
+em <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
+  at = list(sin_phase = ..., cos_phase = ..., baselineMag_c = 0),
+  weights = "proportional")   # was: betaLabels = "0" in at=...
+```
+
+Matches the AME/G-computation semantics used by the new marginaleffects plots and the AME numeric tables in the docx. Supplementary faceted plots (`p_5a_beta`, `p_5a_gf2_beta`) unchanged — they still show both betaLabels levels side-by-side. `baselineMag_c = 0` retained because the covariate is grand-mean centered and enters linearly with no interactions → pinning at 0 is mathematically identical to averaging.
+
+Subtitles reworded from `"baselineMag_c = 0, betaLabels = 0"` → `"baseline at grand mean; betaLabels marginalized over observed proportions"` for all primary and faceted plots.
+
+#### Results
+
+AME (single-step adjusted):
+
+| Contrast | 5a estimate | 5a p | 5a-gf2 estimate | 5a-gf2 p |
+|----------|-------------|------|-----------------|----------|
+| [3,4] − [1,2] | 5.18 µV | 0.221 | 2.28 µV | 0.801 |
+| [5,inf) − [1,2] | **9.09 µV** | **0.052** | **11.01 µV** | **0.048** |
+| [5,inf) − [3,4] | 3.91 µV | 0.422 | **8.73 µV** | **0.041** |
+
+Converge on the at-90°/at-270° EMM estimates — the phase-marginalized AME reinforces the dose-effect story without relying on two specific phase anchors. 5a-gf2 now shows two adjacent-dose contrasts clearing the 5% threshold; 5a has one trending contrast.
+
+#### Verification
+
+Full `betaStim_R_script.R` re-run, exit 0, 517 parsed expressions, 4 new plot files + regenerated docx. No regressions in existing outputs.
+
+#### Why not also swap existing emmeans → marginaleffects elsewhere
+
+Critical analysis before implementation concluded `emmeans` stays as the primary tool: `eff_size()` for Cohen's d with conditional/total variance denominators has no marginaleffects analog; log-scale back-transformation to percent change (`fit.lm.log` in `R_compare_control_cond.R`) is idiomatic in emmeans; spline and sin/cos phase-response curves work fine in emmeans with `at = ...`. AME is the one genuinely different question marginaleffects answers better — scoped narrowly to the 5a/5a-gf2 primary models + one complementary plot each.
+
+---
+
+### Reref/ECO-loading bug class fix + EP pipeline rerun verification (2026-04-21)
+
+#### Bug class: narrow `achan`-based reload gate
+
+TDT ECoG data is split across four 16-channel structs (`ECO1`–`ECO4`, ~1.7 GB each) inside the per-subject `_ECoG.mat` file. To avoid loading all four, the pipeline's channel loops cache the most-recently-loaded struct in `dataStruct` and reload only when the loop crosses into a new group. The reload gate was implemented as a heuristic — "reload if `achan ∈ {1, 2}`" (or sometimes `{1, 2, 4, 6}`) on the theory that any new group's first channel would have `achan=1`. This assumption breaks in two ways:
+
+1. **Stale initial state** — the `plot_EP_goodfit_by_phase.m` reref loop starts with `dataStruct` already loaded for the **target** `chanInt`'s group (not `ECO1`). For `chanInt=47` (c91479 ch47, `grp=2 → ECO3`), the first 13 `rerefChans` iterations (`rc=4..16`) hit `achan ∈ {4..16}`, the narrow gate misses, and the loop reads ECO3 columns instead of the intended ECO1 columns. Result: 23% of reref channels silently replaced, ~5% CEP drift in the median-CAR downstream.
+
+2. **Second-loop stale state in the main pipeline** — `B_ExtractNeuralData_PP_reref.m` has two loops (reref at line 158, peak-extract at line 228). The first uses the broader `{1,2,4,6}` gate and catches every group transition for current subjects; the second uses just `{1,2}` and enters stale from the end of the first loop. For c91479 (whose `chans` list starts at chan=4 / `achan=4`), the first ~12 iterations read from the wrong struct. Empirically those channels are excluded by the 100 µV baseline threshold so the R CSV never saw corrupted numbers — but that was luck, not design.
+
+3. **B_phaseCalc_allChans_processed.m also has the narrow gate** — latent for all 8 subjects because every group transition in their bads/rerefChans lists happens to land at `achan ∈ {1, 2}`. Would silently corrupt any future subject whose bads block channels 1 and 2 of any group.
+
+Documented extensively in `phase_data_origin_and_bugs.md` before fixing.
+
+#### Fix: `prev_grp` group-change detector
+
+Replaced all heuristic gates with a direct group-change detector:
+
+```matlab
+prev_grp = -1;        % forces load on first iteration regardless of caller state
+for chan = <list>
+  grp = floor((chan-1)/16);
+  if grp ~= prev_grp
+    load(..., sprintf('ECO%d', grp+1));
+    dataStruct = eval(sprintf('ECO%d', grp+1));
+    prev_grp = grp;
+  end
+  eco = 4 * dataStruct.data(:, chan - grp*16)';
+  % ...
+end
+```
+
+Applied to 8 loops across 5 files:
+
+- `peak_extraction/B_ExtractNeuralData_PP_reref.m` (both loops, lines 158 and 228)
+- `phase_visualizations/B_phaseCalc_allChans_processed.m` (channel loop, line 90)
+- `manuscript_generate_scripts/plot_EP_goodfit_by_phase.m` (reref loop, line 120)
+- `manuscript_generate_scripts/BETA_ExtractNeuralDataCEPscreen.m` (both loops)
+- `manuscript_generate_scripts/plot_example_dose_dependent_time_series.m` (reref loop)
+
+#### Collateral fixes (debug-leftover cleanup)
+
+- `B_ExtractNeuralData_PP_reref.m:19` — `for idx = 1:1` (debug, d5cd55-only since March 2020) → `for idx = 1:8`
+- `B_phaseCalc_allChans_processed.m:59` — removed `chans = 64;` hardcode (debug from Nov 2019 commit that would have processed only channel 64 for every subject)
+- `B_phaseCalc_allChans_processed.m:2` — `idxVec = [1:7]` → `idxVec = [1:8]` (include playback)
+- `B_phaseCalc_allChans_processed.m:395` — save filename `..._12samps_...` typo → `..._51samps_...` (matches downstream modifier and existing Dec 2018 hyak files)
+
+#### Pipeline rerun (c91479 only) and verification
+
+- **Why c91479 only**: per the safe-subject matrix in `phase_data_origin_and_bugs.md`, c91479 is the only subject whose `chans` list starts at `achan ∉ {1, 2}` — the only subject the chans-loop narrow gate could have bitten. Other subjects' EP data provably unchanged, so no rerun needed.
+- **Why not phase**: Dec 2018 hyak-cluster `.mat` files are canonical; regenerating (now safe with the debug hardcode removed) would take hours for numerically-identical output.
+- **Stages run**: `B_ExtractNeuralData_PP_reref` (c91479 only, patched `for idx = 2:2` with `onCleanup` restore; took 6 s), then `multipleSubj_GLMM_script_PP` across all 7 subjects (7 min). `compute_burst_phase_precision` not rerun — its input (phase data) unchanged, so outputs identical.
+- **CSV diff vs backup**: all 10 numeric columns bit-identical for every subject and channel except c91479 ch47 (15 rows) and ch64 (137 rows), all differing by ≤1e-12 µV (floating-point accumulation noise). Confirms the pre-fix CSV magnitudes for analyzed channels were already correct — the bug never touched the filtered-in data.
+- **R primary models reproduce CLAUDE.md exactly**:
+  - Model 5a (78 obs, 19 ch, 7 sid, non-singular): `numStims_ord.L` p = 0.0676, `cos_phase` p = 0.0899, Type III dose F p = 0.123, effect 6.36 µV
+  - Model 5a-gf2 (102 obs, 25 ch, non-singular): `numStims_ord.L` p = 0.0531, `cos_phase` p = 0.0983, effect 8.10 µV
+- `R_compare_control_cond.R` also completed cleanly.
+
+#### plot_EP_goodfit_by_phase.m inclusion-indicator sgtitle
+
+Added a pre-loop channel-level check that matches the R-CSV inclusion criterion (`mean Base PP ≥ 100 µV`, per `multipleSubj_GLMM_script_PP.m:185`). Sgtitle now shows:
+
+- **INCLUDED** (black): `[INCLUDED: mean Base PP X.X ≥ 100 µV]`
+- **EXCLUDED** (red): `[EXCLUDED from R analysis: mean Base PP X.X < 100 µV threshold]`
+
+Ch48 for c91479 correctly flagged EXCLUDED — pre-fix it had Base PP = 0 µV on the plot (artifact of the old reref corruption trashing single-trial peak extraction within the narrow 5–36 ms window); post-fix it shows Base PP = 36 µV (real but weak signal, still below threshold and correctly dropped from R analysis).
+
+#### Plot regeneration with fixed reref
+
+Regenerated 11 plots with corrected reref:
+- c91479: ch47 (INCLUDED, mean 139.4 µV), ch48 (EXCLUDED, mean 46.7 µV), ch64 (INCLUDED, mean 251.7 µV)
+- 0b5a2e: ch14 (340), ch15 (241), ch16 (277), ch21 (416), ch23 (433), ch31 (518, beta ref), ch32 (205), ch40 (146) — all INCLUDED
+
+c91479 ch47/ch64 per-cell PP annotations shifted <5% as predicted (median CAR is robust even at 23% wrong reref channels; mean CAR would have shifted much more).
+
+#### Backup
+
+`data/_backup_20260421_161313/{output_table,phase_data,EP_data}/` holds full local copies of pre-fix state. Safe to remove once reviewers confirm the post-fix state.
+
+---
+
 ### Primary-model documentation + conditioned-vs-baseline per-cell permutation (2026-04-14)
 
 #### Documentation: 5a / 5a-gf2 established as primary

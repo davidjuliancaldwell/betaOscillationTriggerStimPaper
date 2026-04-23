@@ -12,6 +12,7 @@ library('here')
 library('lmerTest')
 library('sjPlot')
 library('emmeans')
+library('marginaleffects')
 library('dplyr')
 library('afex')
 library('report')
@@ -20,6 +21,12 @@ library('performance')
 library('car')
 library('officer')
 library('flextable')
+
+# Global contrast coding. contr.sum gives orthogonal (sum-to-zero) contrasts
+# for unordered factors so Type III ANOVAs on factors involved in interactions
+# yield marginal main effects. contr.poly (R default) retained for ordered
+# factors. Must be set BEFORE factors are created/used in model fits.
+options(contrasts = c("contr.sum", "contr.poly"))
 
 # log data prior to fitting?
 log_data = FALSE
@@ -126,6 +133,35 @@ data$cos_phase <- cos(data$phase_rad)
 # so rounding is just float-safety. Keeps conditions with different measured
 # phases separate, unlike phaseClass which can merge two conditions into one bin.
 data$phaseDeg_round <- round(data$phaseDeg, 1)
+
+# --- Per-subject baseline CEP magnitude summary (descriptive table) ---
+# One row per subject summarizing the baseline evoked potential magnitude
+# distribution across all baseline probe trials pooled over channels.
+# Sorted by subjectNum (manuscript numeric ID); subject column formatted as
+# "Subject N (sid)" for cross-reference. Written to CSV + docx as
+# subject-characteristics Table 1. Uses the post-filter `data` (25-1500 uV
+# trial filter applied, 0b5a2ePlayBack and Null bursts already removed) so
+# the numbers reflect trials that entered the analysis.
+subject_cep_summary <- data |>
+  dplyr::filter(numStims == "Base") |>
+  dplyr::group_by(subjectNum, sid) |>
+  dplyr::summarise(
+    n_trials   = dplyr::n(),
+    n_channels = dplyr::n_distinct(channel),
+    median_mag = round(median(magnitude), 1),
+    mad_mag    = round(mad(magnitude), 1),
+    q25_mag    = round(quantile(magnitude, 0.25), 1),
+    q75_mag    = round(quantile(magnitude, 0.75), 1),
+    .groups    = "drop") |>
+  dplyr::arrange(as.integer(as.character(subjectNum))) |>
+  dplyr::mutate(subject_label = sprintf("Subject %s (%s)", subjectNum, sid)) |>
+  dplyr::select(subject_label, n_trials, n_channels,
+                median_mag, mad_mag, q25_mag, q75_mag)
+cat("\n--- Per-subject baseline CEP magnitude (Base trials only) ---\n")
+print(subject_cep_summary)
+write.csv(subject_cep_summary,
+          here("output_plots", "betaStim_subject_cep_summary.csv"),
+          row.names = FALSE)
 
 data$percentDiff = 0
 data$absDiff = 0
@@ -1135,8 +1171,12 @@ print(car::linearHypothesis(fit.sincos.ordinal,
 # Phase contrasts (90 vs 270) are single comparisons — no adjustment needed.
 # Dose contrasts at phase = 90 deg (depolarizing: sin=1, cos=0)
 cat("\n--- emmeans: dose contrasts at phase = 90 deg (Tukey-adjusted) ---\n")
+# betaLabels omitted so emmeans marginalizes equally across non-beta / beta
+# channel types. The fixed effect of betaLabels is non-significant (p=0.52
+# in 5a, 0.70 in 5a-gf2), so marginalization shifts EMMs by <1.3 uV but
+# gives a cleaner population-level interpretation for the docx tables.
 emm_5a_90 <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
-  at = list(sin_phase = 1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+  at = list(sin_phase = 1, cos_phase = 0, baselineMag_c = 0))
 print(emm_5a_90)
 cat("Pairwise dose contrasts at 90 deg:\n")
 print(confint(pairs(emm_5a_90)))
@@ -1144,7 +1184,7 @@ print(confint(pairs(emm_5a_90)))
 # Dose contrasts at phase = 270 deg (hyperpolarizing: sin=-1, cos=0)
 cat("\n--- emmeans: dose contrasts at phase = 270 deg (Tukey-adjusted) ---\n")
 emm_5a_270 <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
-  at = list(sin_phase = -1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+  at = list(sin_phase = -1, cos_phase = 0, baselineMag_c = 0))
 print(emm_5a_270)
 cat("Pairwise dose contrasts at 270 deg:\n")
 print(confint(pairs(emm_5a_270)))
@@ -1156,11 +1196,21 @@ emm_5a_phase <- emmeans(fit.sincos.ordinal, ~ numStims_ord * sin_phase,
 print(contrast(emm_5a_phase, method = "pairwise", by = "numStims_ord"))
 
 # --- Phase-response curve via emmeans (every 45 deg) ---
+# betaLabels omitted from at=... and weights = "proportional" used so the
+# curve marginalizes over betaLabels using the OBSERVED proportions in
+# summaryNB_m5 (rather than pinning at "0" or using emmeans' default
+# equal-weight averaging). This matches the G-computation / AME semantics
+# used by the marginaleffects dose-effect-vs-phase curve below and by the
+# AME numeric docx table — giving the plot a population-level rather than
+# non-beta-specific interpretation. baselineMag_c is grand-mean centered
+# so pinning at 0 is equivalent to averaging (E[baselineMag_c] = 0).
+# Faceted beta-vs-non-beta version preserved separately as p_5a_beta.
 phase_vals <- seq(0, 315, by = 45)
 emm_curve <- lapply(phase_vals, function(ph) {
   em <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
     at = list(sin_phase = sin(ph * pi / 180), cos_phase = cos(ph * pi / 180),
-              betaLabels = "0", baselineMag_c = 0))
+              baselineMag_c = 0),
+    weights = "proportional")
   df <- as.data.frame(em)
   df$phase_deg <- ph
   df
@@ -1176,7 +1226,7 @@ p_5a <- ggplot(emm_curve_df, aes(x = phase_deg, y = emmean, color = numStims_ord
        y = expression(paste("Predicted Magnitude (", mu, "V)")),
        color = "Dose", fill = "Dose",
        title = lbl_5a$title,
-       subtitle = "emmeans ± 95% CI; baselineMag_c = 0, betaLabels = 0") +
+       subtitle = "emmeans +/- 95% CI; baseline at grand mean; betaLabels marginalized over observed proportions") +
   scale_x_continuous(breaks = seq(0, 315, by = 45))
 p_5a
 
@@ -1185,6 +1235,100 @@ if(savePlot){
          units = "in", width = 7, height = 4.5, dpi = 600)
   ggsave(here("output_plots", paste0(lbl_5a$fname, ".eps")), plot = p_5a,
          units = "in", width = 7, height = 4.5, dpi = 600, device = cairo_ps)
+}
+
+# --- Dose-effect-vs-phase curve (marginaleffects) ---
+# Complements p_5a. p_5a shows predicted MAGNITUDE at each phase × dose;
+# this shows the pairwise dose CONTRAST (effect in uV) as a function of
+# phase. Answers: "where around the circle is the dose effect largest?"
+# — a phase-stratified decomposition of the AME numeric table.
+#
+# At each hypothetical phase angle, override sin_phase/cos_phase on the
+# observed data and call avg_comparisons() — which then averages the
+# pairwise dose contrast across the OBSERVED distribution of betaLabels,
+# baselineMag_c, sid, and channel (rather than pinning them). Exactly
+# parallel to the AME numeric block, just stratified by phase. Pinning
+# would give a conditional-on-covariates curve; this gives a population-
+# level curve, consistent with the AME table caption.
+# re.form = NA ignores random effects for population-level prediction.
+# CIs are pointwise (no adjustment across the 12 phase x 3 contrast = 36
+# tests); the AME table gives the FWER-controlled single number, this
+# curve decomposes it descriptively.
+phase_vals_curve <- seq(0, 330, by = 30)
+cmp_5a_curve_df <- do.call(rbind, lapply(phase_vals_curve, function(ph) {
+  nd <- summaryNB_m5
+  nd$sin_phase <- sin(ph * pi / 180)
+  nd$cos_phase <- cos(ph * pi / 180)
+  df <- as.data.frame(avg_comparisons(fit.sincos.ordinal,
+    variables = list(numStims_ord = "pairwise"),
+    newdata = nd, re.form = NA))
+  df$phase_deg <- ph
+  df
+}))
+
+p_5a_effect <- ggplot(cmp_5a_curve_df,
+    aes(x = phase_deg, y = estimate, color = contrast, fill = contrast)) +
+  theme_light(base_size = 14) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.15, color = NA) +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) +
+  labs(x = "Delivered Phase (degrees)",
+       y = expression(paste("Dose Effect (", mu, "V)")),
+       color = "Pairwise contrast", fill = "Pairwise contrast",
+       title = paste0(lbl_5a$title, " - Dose Effect vs Phase"),
+       subtitle = "avg_comparisons() at each phase, averaged over observed betaLabels and baseline; pointwise 95% CI") +
+  scale_x_continuous(breaks = seq(0, 360, by = 45))
+p_5a_effect
+
+if(savePlot){
+  ggsave(here("output_plots", paste0(lbl_5a$fname, "_dose_effect_vs_phase.png")),
+         plot = p_5a_effect, units = "in", width = 7, height = 4.5, dpi = 600)
+  ggsave(here("output_plots", paste0(lbl_5a$fname, "_dose_effect_vs_phase.eps")),
+         plot = p_5a_effect, units = "in", width = 7, height = 4.5, dpi = 600,
+         device = cairo_ps)
+}
+
+# --- Supplementary: phase-response curves faceted by betaLabels ---
+# Same reference grid as above but with betaLabels as a predictor dimension
+# rather than pinned at "0". Generates one sub-panel per channel type (non-
+# beta vs beta-trigger). Useful sanity check since the betaLabels fixed
+# effect was non-significant — the two panels should look nearly identical.
+emm_curve_beta_5a <- do.call(rbind, lapply(c("0", "1"), function(bl) {
+  do.call(rbind, lapply(phase_vals, function(ph) {
+    em <- emmeans(fit.sincos.ordinal, ~ numStims_ord,
+      at = list(sin_phase = sin(ph * pi / 180), cos_phase = cos(ph * pi / 180),
+                betaLabels = bl, baselineMag_c = 0))
+    df <- as.data.frame(em)
+    df$phase_deg <- ph
+    df$betaLabels <- bl
+    df
+  }))
+}))
+emm_curve_beta_5a$channel_type <- factor(
+  ifelse(emm_curve_beta_5a$betaLabels == "0", "Non-beta (EP) channels",
+         "Beta trigger channels"),
+  levels = c("Non-beta (EP) channels", "Beta trigger channels"))
+
+p_5a_beta <- ggplot(emm_curve_beta_5a, aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+  theme_light(base_size = 14) +
+  facet_wrap(~ channel_type, nrow = 1) +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) +
+  geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord),
+              alpha = 0.15, color = NA) +
+  labs(x = "Delivered Phase (degrees)",
+       y = expression(paste("Predicted Magnitude (", mu, "V)")),
+       color = "Dose", fill = "Dose",
+       title = paste(lbl_5a$title, "- Beta vs Non-beta Channels"),
+       subtitle = "emmeans +/- 95% CI; baseline at grand mean. betaLabels fixed effect p = 0.52 (ns)") +
+  scale_x_continuous(breaks = seq(0, 315, by = 90)) +
+  theme(strip.text = element_text(face = "bold"))
+
+if (savePlot) {
+  ggsave(here("output_plots", paste0(lbl_5a$fname, "_beta_vs_nonbeta.png")),
+         plot = p_5a_beta, units = "in", width = 11, height = 4.5, dpi = 600)
+  ggsave(here("output_plots", paste0(lbl_5a$fname, "_beta_vs_nonbeta.eps")),
+         plot = p_5a_beta, units = "in", width = 11, height = 4.5, dpi = 600,
+         device = cairo_ps)
 }
 
 # --- Total-variance effect sizes ---
@@ -1229,6 +1373,35 @@ compute_effect_sizes <- function(emm_obj, total_sd, resid_sd, label) {
 
 es_90 <- compute_effect_sizes(emm_5a_90, total_sd_5a, resid_sd_5a, "dose at phase=90")
 es_270 <- compute_effect_sizes(emm_5a_270, total_sd_5a, resid_sd_5a, "dose at phase=270")
+
+# --- Average Marginal Effect of dose (marginaleffects) ---
+# emm_5a_90 / emm_5a_270 evaluate dose contrasts at two specific phases
+# (sin=+/-1, cos=0) with baselineMag_c and betaLabels pinned at 0. The AME
+# below instead marginalizes across the OBSERVED joint distribution of
+# sin_phase, cos_phase, baselineMag_c, and betaLabels in summaryNB_m5 —
+# the phase-weighted population-level dose effect. These are complementary:
+# the emmeans output answers "what is the dose effect at this phase?", the
+# AME answers "what is the dose effect averaged across the phases this
+# study actually sampled?".
+#
+# Multiplicity adjustment: single-step max-t via multcomp::glht — the closest
+# available analog to the Tukey-Kramer adjustment that emmeans::pairs() uses
+# by default for the neighboring EMM contrasts. marginaleffects 0.29 does
+# not expose "tukey" directly; single-step is the same family of FWER
+# control via the joint multivariate-t distribution of the Wald statistics.
+# hypotheses() drops the contrast label column, so we merge it back from
+# the unadjusted avg_comparisons object for a readable table.
+#
+# Inference uses fixed-effect covariance only (standard marginaleffects
+# behavior for lmerMod — population-averaged fixed-effect uncertainty).
+cat("\n--- AME: Model 5a dose pairwise contrasts, marginalized over observed covariates ---\n")
+ame_5a_raw <- avg_comparisons(fit.sincos.ordinal,
+  variables = list(numStims_ord = "pairwise"))
+ame_5a_adj <- as.data.frame(hypotheses(ame_5a_raw, multcomp = "single-step"))
+ame_5a_adj$contrast <- as.data.frame(ame_5a_raw)$contrast
+ame_5a_dose <- ame_5a_adj[, c("term", "contrast",
+  setdiff(names(ame_5a_adj), c("term", "contrast")))]
+print(ame_5a_dose)
 
 # --- Model 5b: Numeric dose x sin/cos (sensitivity) ---
 cat("\n=== Model 5b: Continuous phase (sin/cos) + numeric dose + ANCOVA ===\n")
@@ -1777,12 +1950,22 @@ if (exists("precision_combined")) {
 
   # All pairwise dose contrasts use Tukey adjustment (default for pairs()).
   cat("\n--- emmeans (gf2): dose contrasts at phase 90 and 270 (Tukey-adjusted) ---\n")
+  # betaLabels omitted so emmeans marginalizes equally across non-beta / beta
+  # channel types. See comment at emm_5a_90 above.
   emm_gf2_90 <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
-    at = list(sin_phase = 1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+    at = list(sin_phase = 1, cos_phase = 0, baselineMag_c = 0))
   emm_gf2_270 <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
-    at = list(sin_phase = -1, cos_phase = 0, betaLabels = "0", baselineMag_c = 0))
+    at = list(sin_phase = -1, cos_phase = 0, baselineMag_c = 0))
   cat("At phase=90:\n"); print(as.data.frame(emm_gf2_90))
   cat("At phase=270:\n"); print(as.data.frame(emm_gf2_270))
+
+  # Phase contrast (90 vs 270) at each dose level — cos=0 for both, no factorial issue.
+  # Parallels emm_5a_phase at line 1160 so the docx and console include both primary
+  # models' 90-vs-270 phase contrasts for direct side-by-side interpretation.
+  cat("\n--- emmeans (gf2): phase 90 vs 270 at each dose ---\n")
+  emm_gf2_phase <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord * sin_phase,
+    at = list(sin_phase = c(1, -1), cos_phase = 0, baselineMag_c = 0))
+  print(contrast(emm_gf2_phase, method = "pairwise", by = "numStims_ord"))
 
   # --- Variance components + total-SD effect sizes for Model 5a-gf2 ---
   # Mirrors the 5a computation at lines 1199-1231. Same dose-polynomial
@@ -1804,10 +1987,27 @@ if (exists("precision_combined")) {
   es_gf2_270 <- compute_effect_sizes(emm_gf2_270, total_sd_gf2, resid_sd_gf2,
                                       "5a-gf2 dose at phase=270")
 
+  # --- Average Marginal Effect of dose (marginaleffects), Model 5a-gf2 ---
+  # Parallels the Model 5a AME block — marginalizes dose contrasts over the
+  # observed (sin_phase, cos_phase, baselineMag_c, betaLabels) distribution
+  # in summaryNB_gf2. Single-step max-t multiplicity correction (see rationale
+  # at ame_5a_dose).
+  cat("\n--- AME: Model 5a-gf2 dose pairwise contrasts, marginalized over observed covariates ---\n")
+  ame_gf2_raw <- avg_comparisons(fit.sincos.ordinal.gf2,
+    variables = list(numStims_ord = "pairwise"))
+  ame_gf2_adj <- as.data.frame(hypotheses(ame_gf2_raw, multcomp = "single-step"))
+  ame_gf2_adj$contrast <- as.data.frame(ame_gf2_raw)$contrast
+  ame_gf2_dose <- ame_gf2_adj[, c("term", "contrast",
+    setdiff(names(ame_gf2_adj), c("term", "contrast")))]
+  print(ame_gf2_dose)
+
+  # betaLabels marginalized using observed proportions in summaryNB_gf2 —
+  # matches 5a (see comment at emm_curve above) and the AME table semantics.
   emm_curve_gf2 <- lapply(phase_vals, function(ph) {
     em <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
       at = list(sin_phase = sin(ph*pi/180), cos_phase = cos(ph*pi/180),
-                betaLabels = "0", baselineMag_c = 0))
+                baselineMag_c = 0),
+      weights = "proportional")
     df <- as.data.frame(em)
     df$phase_deg <- ph
     df
@@ -1823,7 +2023,7 @@ if (exists("precision_combined")) {
          y = expression(paste("Predicted Magnitude (", mu, "V)")),
          color = "Dose", fill = "Dose",
          title = lbl_gf2$title,
-         subtitle = "emmeans ± 95% CI; baselineMag_c = 0, betaLabels = 0") +
+         subtitle = "emmeans +/- 95% CI; baseline at grand mean; betaLabels marginalized over observed proportions") +
     scale_x_continuous(breaks = seq(0, 315, by = 45))
   p_5a_gf2
 
@@ -1832,6 +2032,84 @@ if (exists("precision_combined")) {
            units = "in", width = 7, height = 4.5, dpi = 600)
     ggsave(here("output_plots", paste0(lbl_gf2$fname, ".eps")), plot = p_5a_gf2,
            units = "in", width = 7, height = 4.5, dpi = 600, device = cairo_ps)
+  }
+
+  # --- Dose-effect-vs-phase curve (marginaleffects), Model 5a-gf2 ---
+  # Parallel to p_5a_effect. At each phase angle, override sin_phase /
+  # cos_phase on summaryNB_gf2 and average the pairwise dose contrast
+  # across the observed (betaLabels, baselineMag_c, sid, channel)
+  # distribution — same marginalization as the AME numeric block.
+  cmp_gf2_curve_df <- do.call(rbind, lapply(phase_vals_curve, function(ph) {
+    nd <- summaryNB_gf2
+    nd$sin_phase <- sin(ph * pi / 180)
+    nd$cos_phase <- cos(ph * pi / 180)
+    df <- as.data.frame(avg_comparisons(fit.sincos.ordinal.gf2,
+      variables = list(numStims_ord = "pairwise"),
+      newdata = nd, re.form = NA))
+    df$phase_deg <- ph
+    df
+  }))
+
+  p_5a_gf2_effect <- ggplot(cmp_gf2_curve_df,
+      aes(x = phase_deg, y = estimate, color = contrast, fill = contrast)) +
+    theme_light(base_size = 14) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+    geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.15, color = NA) +
+    geom_line(linewidth = 0.8) + geom_point(size = 2) +
+    labs(x = "Delivered Phase (degrees)",
+         y = expression(paste("Dose Effect (", mu, "V)")),
+         color = "Pairwise contrast", fill = "Pairwise contrast",
+         title = paste0(lbl_gf2$title, " - Dose Effect vs Phase"),
+         subtitle = "avg_comparisons() at each phase, averaged over observed betaLabels and baseline; pointwise 95% CI") +
+    scale_x_continuous(breaks = seq(0, 360, by = 45))
+  p_5a_gf2_effect
+
+  if(savePlot){
+    ggsave(here("output_plots", paste0(lbl_gf2$fname, "_dose_effect_vs_phase.png")),
+           plot = p_5a_gf2_effect, units = "in", width = 7, height = 4.5, dpi = 600)
+    ggsave(here("output_plots", paste0(lbl_gf2$fname, "_dose_effect_vs_phase.eps")),
+           plot = p_5a_gf2_effect, units = "in", width = 7, height = 4.5, dpi = 600,
+           device = cairo_ps)
+  }
+
+  # --- Supplementary: phase-response curves faceted by betaLabels (gf2) ---
+  emm_curve_beta_gf2 <- do.call(rbind, lapply(c("0", "1"), function(bl) {
+    do.call(rbind, lapply(phase_vals, function(ph) {
+      em <- emmeans(fit.sincos.ordinal.gf2, ~ numStims_ord,
+        at = list(sin_phase = sin(ph * pi / 180), cos_phase = cos(ph * pi / 180),
+                  betaLabels = bl, baselineMag_c = 0))
+      df <- as.data.frame(em)
+      df$phase_deg <- ph
+      df$betaLabels <- bl
+      df
+    }))
+  }))
+  emm_curve_beta_gf2$channel_type <- factor(
+    ifelse(emm_curve_beta_gf2$betaLabels == "0", "Non-beta (EP) channels",
+           "Beta trigger channels"),
+    levels = c("Non-beta (EP) channels", "Beta trigger channels"))
+
+  p_5a_gf2_beta <- ggplot(emm_curve_beta_gf2,
+                          aes(x = phase_deg, y = emmean, color = numStims_ord)) +
+    theme_light(base_size = 14) +
+    facet_wrap(~ channel_type, nrow = 1) +
+    geom_line(linewidth = 0.8) + geom_point(size = 2) +
+    geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL, fill = numStims_ord),
+                alpha = 0.15, color = NA) +
+    labs(x = "Delivered Phase (degrees)",
+         y = expression(paste("Predicted Magnitude (", mu, "V)")),
+         color = "Dose", fill = "Dose",
+         title = paste(lbl_gf2$title, "- Beta vs Non-beta Channels"),
+         subtitle = "emmeans +/- 95% CI; baseline at grand mean. betaLabels fixed effect p = 0.70 (ns)") +
+    scale_x_continuous(breaks = seq(0, 315, by = 90)) +
+    theme(strip.text = element_text(face = "bold"))
+
+  if (savePlot) {
+    ggsave(here("output_plots", paste0(lbl_gf2$fname, "_beta_vs_nonbeta.png")),
+           plot = p_5a_gf2_beta, units = "in", width = 11, height = 4.5, dpi = 600)
+    ggsave(here("output_plots", paste0(lbl_gf2$fname, "_beta_vs_nonbeta.eps")),
+           plot = p_5a_gf2_beta, units = "in", width = 11, height = 4.5, dpi = 600,
+           device = cairo_ps)
   }
 
   cat(sprintf("\nComparison: 5a AIC=%.1f, 5a-gf (per-burst) AIC=%.1f, 5a-gf2 (channel) AIC=%.1f\n",
@@ -2400,6 +2678,22 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- read_docx()
 
   # ------------------------------------------------------------------
+  # Subject characteristics: baseline CEP magnitude per subject
+  # ------------------------------------------------------------------
+  if (exists("subject_cep_summary")) {
+    scs_out <- subject_cep_summary
+    names(scs_out) <- c("Subject", "N trials", "N channels",
+                        "Median (uV)", "MAD (uV)",
+                        "Q25 (uV)", "Q75 (uV)")
+    doc <- body_add_par(doc, "Subject Characteristics: Baseline CEP Magnitude",
+                        style = "heading 2")
+    ft <- flextable(scs_out) |> autofit() |>
+      set_caption("Per-subject baseline evoked-potential magnitude (Base probe trials only, pooled across channels). Subjects labeled as 'Subject N (sid)' where N is the manuscript numeric ID. Median and MAD are robust statistics; Q25/Q75 give the interquartile range. Reflects trials post 25-1500 uV filter used in all downstream models.")
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+  }
+
+  # ------------------------------------------------------------------
   # Table 1: Residual Diagnostics
   # ------------------------------------------------------------------
   diag_out <- diag_df
@@ -2560,14 +2854,69 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- add_model_tables(doc, fit.sincos.ordinal,
                           "Model 5a (PRIMARY — sin/cos ordinal, ANCOVA; phaseVecLength >= 0.3)")
 
-  # EMM Dose Contrasts: Model 5a at phase=90 and phase=270
-  render_emm_contrasts <- function(doc, emm_obj, heading_str, caption_str) {
-    tbl <- as.data.frame(confint(pairs(emm_obj)))
+  # Format an already-computed contrast / summary object (from contrast() or
+  # pairs(..., by = ...)) into a docx table with CIs, t-ratios, and p-values.
+  # Used for phase-at-each-dose contrasts where the contrast call already has
+  # `by = "numStims_ord"` baked in and we don't want render_emm_contrasts' pairs()
+  # step to re-pair the result.
+  render_contrast_direct <- function(doc, contr_obj, heading_str, caption_str) {
+    tbl <- as.data.frame(summary(contr_obj, infer = c(TRUE, TRUE)))
     tbl$estimate <- round(tbl$estimate, 3)
     tbl$SE       <- round(tbl$SE, 3)
     tbl$df       <- round(tbl$df, 1)
     tbl$lower.CL <- round(tbl$lower.CL, 3)
     tbl$upper.CL <- round(tbl$upper.CL, 3)
+    if ("t.ratio" %in% names(tbl)) tbl$t.ratio <- round(tbl$t.ratio, 2)
+    if ("z.ratio" %in% names(tbl)) tbl$z.ratio <- round(tbl$z.ratio, 2)
+    tbl$p <- sapply(tbl$p.value, fmt_p)
+    tbl$p.value <- NULL
+    names(tbl)[names(tbl) == "lower.CL"] <- "CI lower"
+    names(tbl)[names(tbl) == "upper.CL"] <- "CI upper"
+    doc <- body_add_par(doc, heading_str, style = "heading 2")
+    ft <- flextable(tbl) |> autofit() |> set_caption(caption_str)
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+    doc
+  }
+
+  # AME (marginaleffects::avg_comparisons) output: different column names from
+  # emmeans so it gets its own render helper. Marginalizes over observed
+  # covariates rather than pinning them at a reference value.
+  render_ame_contrasts <- function(doc, ame_obj, heading_str, caption_str) {
+    tbl <- as.data.frame(ame_obj)
+    keep <- intersect(c("contrast", "estimate", "std.error", "statistic",
+                        "p.value", "conf.low", "conf.high"), names(tbl))
+    tbl <- tbl[, keep, drop = FALSE]
+    tbl$estimate   <- round(tbl$estimate,   3)
+    tbl$std.error  <- round(tbl$std.error,  3)
+    if ("statistic" %in% names(tbl))  tbl$statistic  <- round(tbl$statistic,  2)
+    if ("conf.low"  %in% names(tbl))  tbl$conf.low   <- round(tbl$conf.low,   3)
+    if ("conf.high" %in% names(tbl))  tbl$conf.high  <- round(tbl$conf.high,  3)
+    if ("p.value"   %in% names(tbl))  tbl$p          <- sapply(tbl$p.value, fmt_p)
+    tbl$p.value <- NULL
+    names(tbl)[names(tbl) == "std.error"] <- "SE"
+    names(tbl)[names(tbl) == "conf.low"]  <- "CI lower"
+    names(tbl)[names(tbl) == "conf.high"] <- "CI upper"
+    doc <- body_add_par(doc, heading_str, style = "heading 2")
+    ft <- flextable(tbl) |> autofit() |> set_caption(caption_str)
+    doc <- body_add_flextable(doc, ft)
+    doc <- body_add_par(doc, "")
+    doc
+  }
+
+  # EMM Dose Contrasts: pairs() with estimates, CIs, t-ratio, AND p-values.
+  # infer = c(TRUE, TRUE) requests both confidence interval and hypothesis test.
+  render_emm_contrasts <- function(doc, emm_obj, heading_str, caption_str) {
+    tbl <- as.data.frame(summary(pairs(emm_obj), infer = c(TRUE, TRUE)))
+    tbl$estimate <- round(tbl$estimate, 3)
+    tbl$SE       <- round(tbl$SE, 3)
+    tbl$df       <- round(tbl$df, 1)
+    tbl$lower.CL <- round(tbl$lower.CL, 3)
+    tbl$upper.CL <- round(tbl$upper.CL, 3)
+    if ("t.ratio" %in% names(tbl)) tbl$t.ratio <- round(tbl$t.ratio, 2)
+    if ("z.ratio" %in% names(tbl)) tbl$z.ratio <- round(tbl$z.ratio, 2)
+    tbl$p <- sapply(tbl$p.value, fmt_p)
+    tbl$p.value <- NULL
     names(tbl)[names(tbl) == "lower.CL"] <- "CI lower"
     names(tbl)[names(tbl) == "upper.CL"] <- "CI upper"
     doc <- body_add_par(doc, heading_str, style = "heading 2")
@@ -2583,6 +2932,20 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- render_emm_contrasts(doc, emm_5a_270,
     "EMM Dose Contrasts: Model 5a @ phase=270 deg",
     "Pairwise dose contrasts at phase=270 deg (Model 5a, Tukey-adjusted).")
+
+  # EMM Phase Contrast: 90 vs 270 at each dose (Model 5a). Single comparison
+  # per dose, no family-wise adjustment applied.
+  doc <- render_contrast_direct(doc,
+    contrast(emm_5a_phase, method = "pairwise", by = "numStims_ord"),
+    "EMM Phase Contrasts (90 vs 270): Model 5a",
+    "Phase 90 vs 270 contrast (estimate = EMM at 90 minus EMM at 270, in uV) at each dose level, Model 5a. Single comparison per dose, unadjusted.")
+
+  # AME Dose Contrasts: Model 5a, phase-marginalized.
+  if (exists("ame_5a_dose")) {
+    doc <- render_ame_contrasts(doc, ame_5a_dose,
+      "AME Dose Contrasts (marginalized over observed phase): Model 5a",
+      "Pairwise dose contrasts (Model 5a, single-step max-t FWER correction), marginalized over the observed joint distribution of sin_phase, cos_phase, baselineMag_c, and betaLabels. Complements the at-90-deg / at-270-deg EMM contrasts above, which pin phase at +/-1 and covariates at 0.")
+  }
 
   # Effect sizes for Model 5a (already in the file further down, but repeat
   # here so primary-model effect sizes live together with primary tables)
@@ -2624,6 +2987,21 @@ if (requireNamespace("officer", quietly = TRUE) &&
       doc <- render_emm_contrasts(doc, emm_gf2_270,
         "EMM Dose Contrasts: Model 5a-gf2 @ phase=270 deg",
         "Pairwise dose contrasts at phase=270 deg (Model 5a-gf2, Tukey-adjusted).")
+    }
+
+    # EMM Phase Contrast: 90 vs 270 at each dose (Model 5a-gf2). Parallels 5a.
+    if (exists("emm_gf2_phase")) {
+      doc <- render_contrast_direct(doc,
+        contrast(emm_gf2_phase, method = "pairwise", by = "numStims_ord"),
+        "EMM Phase Contrasts (90 vs 270): Model 5a-gf2",
+        "Phase 90 vs 270 contrast (estimate = EMM at 90 minus EMM at 270, in uV) at each dose level, Model 5a-gf2. Single comparison per dose, unadjusted.")
+    }
+
+    # AME Dose Contrasts: Model 5a-gf2, phase-marginalized.
+    if (exists("ame_gf2_dose")) {
+      doc <- render_ame_contrasts(doc, ame_gf2_dose,
+        "AME Dose Contrasts (marginalized over observed phase): Model 5a-gf2",
+        "Pairwise dose contrasts (Model 5a-gf2, single-step max-t FWER correction), marginalized over the observed joint distribution of sin_phase, cos_phase, baselineMag_c, and betaLabels. Complements the at-90-deg / at-270-deg EMM contrasts above, which pin phase at +/-1 and covariates at 0.")
     }
 
     if (exists("es_gf2_90")) {
@@ -2674,69 +3052,21 @@ if (requireNamespace("officer", quietly = TRUE) &&
   doc <- add_model_tables(doc, fit.ancova, "Model 3c (ANCOVA, binary phaseClass — sensitivity)")
   doc <- add_model_tables(doc, fit.numeric, "Model 3e (numeric dose, binary phaseClass — sensitivity)")
 
-  # ------------------------------------------------------------------
-  # EMM Dose Contrasts: Model 3a
-  # ------------------------------------------------------------------
-  dose_3a_tbl <- as.data.frame(confint(pairs(emm_3a_dose)))
-  dose_3a_tbl$estimate <- round(dose_3a_tbl$estimate, 3)
-  dose_3a_tbl$SE <- round(dose_3a_tbl$SE, 3)
-  dose_3a_tbl$df <- round(dose_3a_tbl$df, 1)
-  dose_3a_tbl$lower.CL <- round(dose_3a_tbl$lower.CL, 3)
-  dose_3a_tbl$upper.CL <- round(dose_3a_tbl$upper.CL, 3)
-  names(dose_3a_tbl)[names(dose_3a_tbl) == "lower.CL"] <- "CI lower"
-  names(dose_3a_tbl)[names(dose_3a_tbl) == "upper.CL"] <- "CI upper"
-  doc <- body_add_par(doc, "EMM Dose Contrasts: Model 3a", style = "heading 2")
-  ft <- flextable(dose_3a_tbl) |> autofit() |>
-    set_caption("Pairwise dose contrasts within each phase class (Model 3a, Tukey-adjusted)")
-  doc <- body_add_flextable(doc, ft)
-  doc <- body_add_par(doc, "")
-
-  # EMM Phase Contrasts: Model 3a
-  phase_3a_tbl <- as.data.frame(confint(pairs(emm_3a_phase)))
-  phase_3a_tbl$estimate <- round(phase_3a_tbl$estimate, 3)
-  phase_3a_tbl$SE <- round(phase_3a_tbl$SE, 3)
-  phase_3a_tbl$df <- round(phase_3a_tbl$df, 1)
-  phase_3a_tbl$lower.CL <- round(phase_3a_tbl$lower.CL, 3)
-  phase_3a_tbl$upper.CL <- round(phase_3a_tbl$upper.CL, 3)
-  names(phase_3a_tbl)[names(phase_3a_tbl) == "lower.CL"] <- "CI lower"
-  names(phase_3a_tbl)[names(phase_3a_tbl) == "upper.CL"] <- "CI upper"
-  doc <- body_add_par(doc, "EMM Phase Contrasts: Model 3a", style = "heading 2")
-  ft <- flextable(phase_3a_tbl) |> autofit() |>
-    set_caption("Phase contrasts at each dose level (Model 3a)")
-  doc <- body_add_flextable(doc, ft)
-  doc <- body_add_par(doc, "")
-
-  # ------------------------------------------------------------------
-  # EMM Dose Contrasts: Model 3c (ANCOVA, sensitivity)
-  # ------------------------------------------------------------------
-  dose_3c_tbl <- as.data.frame(confint(pairs(emm_3c_dose)))
-  dose_3c_tbl$estimate <- round(dose_3c_tbl$estimate, 3)
-  dose_3c_tbl$SE <- round(dose_3c_tbl$SE, 3)
-  dose_3c_tbl$df <- round(dose_3c_tbl$df, 1)
-  dose_3c_tbl$lower.CL <- round(dose_3c_tbl$lower.CL, 3)
-  dose_3c_tbl$upper.CL <- round(dose_3c_tbl$upper.CL, 3)
-  names(dose_3c_tbl)[names(dose_3c_tbl) == "lower.CL"] <- "CI lower"
-  names(dose_3c_tbl)[names(dose_3c_tbl) == "upper.CL"] <- "CI upper"
-  doc <- body_add_par(doc, "EMM Dose Contrasts: Model 3c (ANCOVA)", style = "heading 2")
-  ft <- flextable(dose_3c_tbl) |> autofit() |>
-    set_caption("Pairwise dose contrasts within each phase class (Model 3c ANCOVA, Tukey-adjusted)")
-  doc <- body_add_flextable(doc, ft)
-  doc <- body_add_par(doc, "")
-
-  # EMM Phase Contrasts: Model 3c
-  phase_3c_tbl <- as.data.frame(confint(pairs(emm_3c_phase)))
-  phase_3c_tbl$estimate <- round(phase_3c_tbl$estimate, 3)
-  phase_3c_tbl$SE <- round(phase_3c_tbl$SE, 3)
-  phase_3c_tbl$df <- round(phase_3c_tbl$df, 1)
-  phase_3c_tbl$lower.CL <- round(phase_3c_tbl$lower.CL, 3)
-  phase_3c_tbl$upper.CL <- round(phase_3c_tbl$upper.CL, 3)
-  names(phase_3c_tbl)[names(phase_3c_tbl) == "lower.CL"] <- "CI lower"
-  names(phase_3c_tbl)[names(phase_3c_tbl) == "upper.CL"] <- "CI upper"
-  doc <- body_add_par(doc, "EMM Phase Contrasts: Model 3c (ANCOVA)", style = "heading 2")
-  ft <- flextable(phase_3c_tbl) |> autofit() |>
-    set_caption("Phase contrasts at each dose level (Model 3c ANCOVA)")
-  doc <- body_add_flextable(doc, ft)
-  doc <- body_add_par(doc, "")
+  # EMM contrasts: Models 3a and 3c. Uses the render_emm_contrasts helper
+  # (defined in the PRIMARY MODELS block above) so 3-series tables include
+  # p-values + CIs + t-ratios identically to the 5a/5a-gf2 tables.
+  doc <- render_emm_contrasts(doc, emm_3a_dose,
+    "EMM Dose Contrasts: Model 3a",
+    "Pairwise dose contrasts within each phase class (Model 3a, Tukey-adjusted).")
+  doc <- render_emm_contrasts(doc, emm_3a_phase,
+    "EMM Phase Contrasts: Model 3a",
+    "Phase contrasts at each dose level (Model 3a).")
+  doc <- render_emm_contrasts(doc, emm_3c_dose,
+    "EMM Dose Contrasts: Model 3c (ANCOVA)",
+    "Pairwise dose contrasts within each phase class (Model 3c ANCOVA, Tukey-adjusted).")
+  doc <- render_emm_contrasts(doc, emm_3c_phase,
+    "EMM Phase Contrasts: Model 3c (ANCOVA)",
+    "Phase contrasts at each dose level (Model 3c ANCOVA).")
 
   # ------------------------------------------------------------------
   # Effect Sizes (Cohen's d): Models 3a and 3c

@@ -146,6 +146,7 @@ ZscoredDataForAnova = {};
 
 %% do referencing on list of channels
 
+prev_grp = -1;  % sentinel: force load on first iteration regardless of caller state
 for chan = rerefChans
 
     %% load in ecog data for that channel
@@ -157,9 +158,10 @@ for chan = rerefChans
     ev = sprintf('ECO%d',grp+1);
     achan = chan - grp*16;
 
-    if achan==1 || achan == 2 || achan == 4 || achan == 6
+    if grp ~= prev_grp
         load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
         dataStruct = eval(ev);
+        prev_grp = grp;
     end
     eco = dataStruct.data(:,achan);
     eco = 4*eco';

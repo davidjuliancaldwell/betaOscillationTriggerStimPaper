@@ -596,7 +596,7 @@ The 2 removed stimuli in the NEW table were in-burst conditioning pulses with an
 
 **Probe stim times are byte-identical between OLD and NEW.** Since probe stims are the test pulses used for CEP magnitude extraction, the EP data is unaffected by the table version.
 
-The phase calculation (`B_phaseCalc_allChans_processed.m`) was likely not rerun after the table rebuild — the commit hardcoded `idxVec = [7:7]` (subject 7 only) and `chans = 64` (debug settings). However, since the per-condition in-burst stim counts and times are identical between tables, rerunning the phase calculation would produce the same results.
+The phase calculation (`B_phaseCalc_allChans_processed.m`) was likely not rerun after the table rebuild — the commit hardcoded `idxVec = [7:7]` (subject 7 only) and `chans = 64` (debug settings). However, since the per-condition in-burst stim counts and times are identical between tables, rerunning the phase calculation would produce the same results. **2026-04-21 note**: the `chans = 64` and `idxVec = 7:7` debug hardcodes were removed, and the narrow-gate ECO-loading pattern was replaced with a `prev_grp` group-change detector across all affected scripts — see `phase_data_origin_and_bugs.md` Verification section. The Dec 2018 hyak-cluster phase `.mat` files remain canonical and were not regenerated.
 
 A third variant (`ecb43e_tables_modDJC.mat`, 106,672 bytes) exists with 1,553 bursts (vs 1,169), suggesting a different burst-detection parameterization. This variant is not used in the current pipeline.
 

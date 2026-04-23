@@ -1,5 +1,5 @@
 %% parameters
-idxVec = [1:7];
+idxVec = [1:8];
 
 for idx = idxVec
     sid = SIDS{idx};
@@ -56,7 +56,6 @@ for idx = idxVec
     
     chans = [1:64];
     chans(ismember(chans, badsTotal)) = [];
-    chans = 64;
     %% load in the trigger data
     
     
@@ -87,20 +86,22 @@ for idx = idxVec
     %
     
     %% process each ecog channel individually
+    prev_grp = -1;  % sentinel: force load on first iteration regardless of caller state
     for chan = chans
         %% load in ecog data for that channel
-        
+
         fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
         tic;
-        
+
         grp = floor((chan-1)/16);
         ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
-        
-        if achan==1 || achan == 2 
+
+        if grp ~= prev_grp
             load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
+            prev_grp = grp;
         end
         eco = dataStruct.data(:,achan);
         eco = 4*eco';
@@ -391,7 +392,7 @@ for idx = idxVec
     end
     %%
     if saveIt
-        save(fullfile(folderPhase, [sid '_phaseDelivery_allChans_12samps_12_20_40ms_randomStart.mat']), 'sid','t','r_square','r_square_acaus','r_square_neg_acaus','r_square_pos','r_square_neg',...
+        save(fullfile(folderPhase, [sid '_phaseDelivery_allChans_51samps_12_20_40ms_randomStart.mat']), 'sid','t','r_square','r_square_acaus','r_square_neg_acaus','r_square_pos','r_square_neg',...
             'r_square_pos_acaus','phase_at_0_pos','fitline_pos','phase_at_0_neg','fitline_neg',...
             'phase_at_0_pos_acaus','fitline_pos_acaus','phase_at_0_neg_acaus','fitline_neg_acaus',...
             'phase_at_0','r_square','fitline','phase_at_0_acaus','fitline_acaus',...

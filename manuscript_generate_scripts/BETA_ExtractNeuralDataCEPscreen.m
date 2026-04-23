@@ -2,14 +2,21 @@
 
 % Constants
 %close all;clear all;clc
-saveIt = 0;
-SUB_DIR = fullfile(myGetenv('subject_dir'));
-cd(fileparts(which('BETA_ExtractNeuralDataCEPscreen')));
-locationsDir = pwd;
-META_DIR = fullfile(locationsDir, '..','data','stim_timing_data');
-%folderCoords = fullfile(locationsDir,'..','coordinates');
+
+% Allow a wrapper to pre-set saveIt/savePlot before calling this script;
+% otherwise default to saving outputs.
+if ~exist('saveIt', 'var'); saveIt = 1; end
+if ~exist('savePlot', 'var'); savePlot = 1; end
+
+% setup_environment.m defines folderEP, folderPlots, folderTiming, SIDS
+setup_environment;
+Z_Constants;
+META_DIR = folderTiming;
+OUTPUT_DIR = folderEP;
+
 %%
-for idx = 1:7
+if ~exist('idxVec', 'var'); idxVec = 1:8; end
+for idx = idxVec
     sid = SIDS{idx};
     
     switch(sid)
@@ -54,8 +61,9 @@ for idx = 1:7
             
         case '0b5a2ePlayback' % added DJC 7-23-2015
             stimChans = [22 30];
+            betaChan = 31;
             rerefChans = [1:8 9:12 17:20 24 25:28 33:37 38 41:48 49:64];
-            
+
     end
     chans = [1:64];
     
@@ -102,21 +110,23 @@ for idx = 1:7
     stims(:, bads) = [];
     
     %% do referencing on list of channels
-    
+
+    prev_grp = -1;  % sentinel: force load on first iteration regardless of caller state
     for chan = rerefChans
-        
+
         % load in ecog data for that channel
         fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
         tic;
-        
+
         grp = floor((chan-1)/16);
         ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
-        
-        if achan==1 || achan == 2 || achan == 4 || achan == 6
+
+        if grp ~= prev_grp
             load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
+            prev_grp = grp;
         end
         eco = dataStruct.data(:,achan);
         eco = 4*eco';
@@ -175,20 +185,22 @@ for idx = 1:7
     end
     
     %% process each ecog channel individually
-    
+
+    prev_grp = -1;  % sentinel: force load on first iteration regardless of caller state
     for chan = chans
         %% load in ecog data for that channel
         fprintf('loading in ecog data for %s:\n',sid);
         fprintf('channel %d:\n',chan);
         tic;
-        
+
         grp = floor((chan-1)/16);
         ev = sprintf('ECO%d',grp+1);
         achan = chan - grp*16;
-        
-        if achan==1 || achan == 2
+
+        if grp ~= prev_grp
             load(fullfile(folderECoGData,[sid '_ECoG.mat']),ev);
             dataStruct = eval(ev);
+            prev_grp = grp;
         end
         eco = dataStruct.data(:,achan);
         eco = 4*eco';
@@ -263,12 +275,25 @@ for idx = 1:7
     
     if saveIt
         save(fullfile(OUTPUT_DIR, [sid '_baselineCCEPs.mat']), 't','ECoGData','ECoGDataAverage','-v7.3');
+        fprintf('Saved baseline CCEPs .mat for %s\n', sid);
     end
-   
+
     %%
-    
+
     smallMultiples(ECoGDataAverage,t,'type1',stimChans,'type2',betaChan,'average',1);
-    
+    hFig = gcf;
+    sgtitle(sprintf('%s — baseline CEP grid (median CAR, pre-stim-subtracted)', sid), ...
+        'FontSize', 14);
+
+    if savePlot
+        outBase = fullfile(folderPlots, sprintf('baselineCEP_smallMultiples_%s', sid));
+        set(hFig, 'PaperPositionMode', 'auto');
+        print(hFig, [outBase '.png'], '-dpng', '-r300');
+        print(hFig, [outBase '.eps'], '-depsc', '-r600');
+        fprintf('Saved: %s.{png,eps}\n', outBase);
+    end
+
+    close(hFig);
     clearvars winsReref ECoGData
-    
+
 end

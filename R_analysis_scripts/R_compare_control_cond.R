@@ -19,6 +19,12 @@ library('emmeans')
 library('wesanderson')
 library(car)
 
+# Global contrast coding. contr.sum gives orthogonal (sum-to-zero) contrasts
+# for unordered factors so Type III ANOVAs on factors involved in interactions
+# yield marginal main effects. contr.poly (R default) retained for ordered
+# factors. Must be set BEFORE factors are created/used in model fits.
+options(contrasts = c("contr.sum", "contr.poly"))
+
 rootDir = here()
 
 savePlot = 1
@@ -874,16 +880,66 @@ for (ch in sort(unique(paired$channel_raw))) {
 }
 perm_perchan <- do.call(rbind, perm_list)
 
+# --- BH FDR within dose ---
+# Each dose is a distinct scientific question (does CL exceed PB at this dose?).
+# ~13-16 channel x phase cells per dose form a natural family. Mirrors the
+# conditioned-vs-baseline per-cell correction at line 1511. Only one subject
+# (0b5a2e) contributes, so no subject-level nesting is needed.
+perm_perchan$perm_q_bh <- NA_real_
+for (dose in dose_levels_paired) {
+  rows <- perm_perchan$numStims == dose
+  if (sum(rows) > 0) {
+    perm_perchan$perm_q_bh[rows] <- p.adjust(perm_perchan$perm_p[rows], method = "BH")
+  }
+}
+perm_perchan$perm_q_bh <- round(perm_perchan$perm_q_bh, 4)
+
 cat(sprintf("Per channel x condition tests: %d cells with >= 5 probes\n", nrow(perm_perchan)))
 print(perm_perchan[order(perm_perchan$numStims, perm_perchan$cl_phase), ])
 
 cat("\nUnits with CL > PB (median diff > 0) per dose:\n")
 for (dose in dose_levels_paired) {
   sub <- perm_perchan[perm_perchan$numStims == dose, ]
-  cat(sprintf("  %s: %d/%d positive (%.0f%%), sig at p<0.05: %d\n",
+  cat(sprintf("  %s: %d/%d positive (%.0f%%), sig at p<0.05 (uncorr): %d, BH q<0.05: %d\n",
       dose, sum(sub$obs_median_diff > 0), nrow(sub),
-      100 * mean(sub$obs_median_diff > 0), sum(sub$perm_p < 0.05)))
+      100 * mean(sub$obs_median_diff > 0),
+      sum(sub$perm_p < 0.05), sum(sub$perm_q_bh < 0.05, na.rm = TRUE)))
 }
+
+# --- Direction by measured-phase region (depol 45-135 vs hyperpol 225-315) ---
+# Bin cells by where their channel-level measured phase landed: the 90°
+# (depolarizing, 45-135) region vs the 270° (hyperpolarizing, 225-315) region.
+# Cells outside both bands are tracked as "other" (near 0° or 180°).
+# For each dose, report count positive / count negative in each region, median
+# effect, and FDR-significant-cell counts. This complements the per-cell forest
+# plot by summarizing the direction of modulation across cells within each
+# physiologically-meaningful phase neighborhood.
+cat("\nDirection by measured-phase half (hyperpol half 0-180 deg vs depol half 180-360 deg):\n")
+# phaseDeg_round is the channel-level circular mean (already in [0, 360) from
+# circ_mean + round), so a direct band check suffices.
+# Convention (per Zanos et al., Curr Biol 2018, PIIS0960982218309084):
+# 90 deg = hyperpolarizing phase of the beta oscillation (center of 0-180 half)
+# 270 deg = depolarizing phase of the beta oscillation (center of 180-360 half).
+perm_perchan$phase_region <- factor(
+  ifelse(perm_perchan$phaseDeg_round >= 0 & perm_perchan$phaseDeg_round < 180,
+         "hyperpol half (0-180)", "depol half (180-360)"),
+  levels = c("hyperpol half (0-180)", "depol half (180-360)"))
+
+clpb_region_direction <- plyr::ddply(
+  perm_perchan, .(numStims, phase_region), summarize,
+  n_cells        = length(obs_median_diff),
+  n_positive     = sum(obs_median_diff > 0),
+  n_negative     = sum(obs_median_diff < 0),
+  pct_positive   = round(100 * mean(obs_median_diff > 0), 1),
+  median_effect  = round(median(obs_median_diff), 1),
+  mean_effect    = round(mean(obs_median_diff), 1),
+  n_sig_uncorr   = sum(!is.na(perm_p) & perm_p < 0.05),
+  n_sig_fdr_bh   = sum(!is.na(perm_q_bh) & perm_q_bh < 0.05))
+clpb_region_direction$numStims <- factor(
+  clpb_region_direction$numStims, levels = dose_levels_paired)
+clpb_region_direction <- clpb_region_direction[
+  order(clpb_region_direction$numStims, clpb_region_direction$phase_region), ]
+print(clpb_region_direction, row.names = FALSE)
 
 # --- Dot plot + loess: diff vs CL per-burst phase, faceted by dose ---
 paired$numStims <- factor(paired$numStims, levels = dose_levels_paired)
@@ -1146,41 +1202,62 @@ row_order <- unique(perm_perchan[order(perm_perchan$phaseDeg_round,
                                   "chan_cond_lbl"])
 perm_perchan$chan_cond_lbl <- factor(perm_perchan$chan_cond_lbl,
                                       levels = rev(row_order))
-perm_perchan$sig <- !is.na(perm_perchan$perm_p) & perm_perchan$perm_p < 0.05
+perm_perchan$sig_uncorr <- !is.na(perm_perchan$perm_p) &
+                            perm_perchan$perm_p < 0.05
+perm_perchan$sig_fdr    <- !is.na(perm_perchan$perm_q_bh) &
+                            perm_perchan$perm_q_bh < 0.05
 perm_perchan$numStims_f <- factor(perm_perchan$numStims, levels = dose_levels_paired)
 
-# Beta reference channel for 0b5a2e is ch31. Override the sig-based color
-# scheme for those rows and highlight them with magenta. Also color the
-# matching y-axis tick labels magenta so the two cue each other visually.
-perm_perchan$color_cat <- ifelse(
-  as.character(perm_perchan$channel_raw) == "31", "beta (Ch 31)",
-  ifelse(perm_perchan$sig, "sig (p<0.05)", "ns"))
-perm_perchan$color_cat <- factor(perm_perchan$color_cat,
-  levels = c("ns", "sig (p<0.05)", "beta (Ch 31)"))
+# Three-tier significance based on BH FDR within dose. Dot color reflects
+# significance only (no beta-channel override) so significance is readable
+# on every row. Beta trigger channel (Ch 31) is flagged separately by (a)
+# pink y-axis tick labels and (b) a magenta ring behind the dot, matching
+# the conditioned-vs-baseline forest plot convention.
+perm_perchan$color_cat <- factor(
+  ifelse(perm_perchan$sig_fdr, "FDR q<0.05 (within dose)",
+    ifelse(perm_perchan$sig_uncorr, "p<0.05 uncorr", "ns")),
+  levels = c("ns", "p<0.05 uncorr", "FDR q<0.05 (within dose)"))
 
 # axis.text.y color vector: element_text accepts a vector of per-tick
 # colors, applied in factor-level order (which for our factor is
 # bottom-to-top = descending measured phase).
 y_label_colors <- ifelse(
   grepl("^Ch 31 ", levels(perm_perchan$chan_cond_lbl)),
-  "magenta", "black")
+  "deeppink3", "black")
+
+# Subset used to draw a magenta ring behind beta-trigger (Ch 31) rows so the
+# flag is visible independent of the significance-driven fill color. The
+# ring is mapped to a named shape aesthetic so it appears in the legend.
+beta_ring <- perm_perchan[as.character(perm_perchan$channel_raw) == "31", ]
+beta_ring$ring_label <- "Beta trigger channel"
 
 p_clpb_forest <- ggplot(perm_perchan,
-  aes(y = chan_cond_lbl, x = obs_median_diff, color = color_cat)) +
+  aes(y = chan_cond_lbl, x = obs_median_diff)) +
   theme_light(base_size = 12) +
   facet_wrap(~ numStims_f, nrow = 1) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
-  geom_errorbarh(aes(xmin = lo_ci, xmax = hi_ci), height = 0.25, linewidth = 0.6,
-                 na.rm = TRUE) +
-  geom_point(size = 2.8) +
+  geom_errorbarh(aes(xmin = lo_ci, xmax = hi_ci, color = color_cat),
+                 height = 0.25, linewidth = 0.6, na.rm = TRUE) +
+  # Magenta ring (open circle) behind Ch 31 dots. Draw first so the filled
+  # significance dot sits on top. Mapped to a named shape scale so it
+  # generates its own legend entry.
+  geom_point(data = beta_ring, aes(shape = ring_label),
+             size = 5, stroke = 1.2, color = "deeppink3", fill = NA) +
+  geom_point(aes(color = color_cat), size = 2.8) +
   scale_color_manual(values = c("ns" = "grey45",
-                                 "sig (p<0.05)" = "#d62728",
-                                 "beta (Ch 31)" = "magenta"),
-                     name = "") +
-  labs(x = expression(paste("Median CL - PB (", mu, "V)")),
+                                 "p<0.05 uncorr" = "#ff8c00",
+                                 "FDR q<0.05 (within dose)" = "#d62728"),
+                     drop = FALSE, name = "") +
+  scale_shape_manual(values = c("Beta trigger channel" = 1), name = "") +
+  guides(
+    color = guide_legend(order = 1),
+    shape = guide_legend(order = 2,
+                         override.aes = list(size = 5, stroke = 1.2,
+                                             color = "deeppink3"))) +
+  labs(x = expression(paste("Median Baseline-Normalized: CL - PB (", mu, "V)")),
        y = NULL,
        title = "0b5a2e: Paired CL - PB Effects by Channel × Phase × Dose",
-       subtitle = "Bootstrap 95% CIs (2000 resamples); p-values from matched-pair sign-flip perms") +
+       subtitle = "Each probe baseline-normalized to its own session. Bootstrap 95% CIs (2000 resamples); matched-pair sign-flip perms, BH FDR within dose.") +
   theme(strip.text = element_text(size = 12, face = "bold"),
         axis.text.y = element_text(color = y_label_colors),
         legend.position = "bottom")
@@ -1592,6 +1669,35 @@ cb_summary_pooled <- cb_summary_pooled[order(cb_summary_pooled$numStims), ]
 cat("\nPooled-FDR sensitivity summary per dose:\n")
 print(cb_summary_pooled)
 
+# --- Direction by measured-phase half across all subjects ---
+# Analogous to the clpb_region_direction block for CL vs PB, but across all
+# 7 subjects (101 cells total). Splits measured delivered phase into two
+# halves per Zanos et al. (Curr Biol 2018, PIIS0960982218309084) convention:
+#   hyperpol (0-180 deg), depol (180-360 deg). 90 deg is center of hyperpol
+#   half; 270 deg is center of depol half.
+# Reports per (dose x half): cell counts, pos/neg breakdown, median/mean
+# effect, and within-subject FDR-significant counts.
+cat("\nCond vs Base direction by measured-phase half (all subjects):\n")
+cb_perchan$phase_half <- factor(
+  ifelse(cb_perchan$phaseDeg_round >= 0 & cb_perchan$phaseDeg_round < 180,
+         "hyperpol half (0-180)", "depol half (180-360)"),
+  levels = c("hyperpol half (0-180)", "depol half (180-360)"))
+
+cb_halves <- plyr::ddply(cb_perchan, .(numStims, phase_half), summarize,
+  n_cells       = length(obs_diff),
+  n_subjects    = length(unique(sid)),
+  n_channels    = length(unique(paste(sid, channel_raw))),
+  n_positive    = sum(obs_diff > 0),
+  n_negative    = sum(obs_diff < 0),
+  pct_positive  = round(100 * mean(obs_diff > 0), 1),
+  median_effect = round(median(obs_diff), 1),
+  mean_effect   = round(mean(obs_diff), 1),
+  n_sig_uncorr  = sum(sig_uncorr),
+  n_sig_fdr     = sum(sig_fdr))
+cb_halves$numStims <- factor(cb_halves$numStims, levels = doses_cb)
+cb_halves <- cb_halves[order(cb_halves$numStims, cb_halves$phase_half), ]
+print(cb_halves, row.names = FALSE)
+
 # --- Overlap with 5a-gf2 channels (internal consistency check) ---
 if (exists("summaryNB_gf2")) {
   gf2_keys <- unique(paste(summaryNB_gf2$sid, summaryNB_gf2$channel,
@@ -1836,7 +1942,8 @@ anova_ec_tbl[, 2:7] <- round(anova_ec_tbl[, 2:7], 4)
 # --- perm_perchan: drop plot-formatting columns for the export ---
 perm_perchan_export <- perm_perchan[, c(
   "channel_raw", "setToDeliverPhase", "phaseDeg_round", "phaseVecLength",
-  "numStims", "n_probes", "obs_median_diff", "lo_ci", "hi_ci", "perm_p"
+  "numStims", "n_probes", "obs_median_diff", "lo_ci", "hi_ci",
+  "perm_p", "perm_q_bh"
 )]
 perm_perchan_export <- perm_perchan_export[order(
   perm_perchan_export$numStims,
@@ -1866,6 +1973,12 @@ write_summary_csv(anova_ec_tbl,   "betaStim_ecb43e_anova")
 # clpb sign-flip permutation tables (were previously console-only)
 write_summary_csv(perm_chan,           "betaStim_clpb_perm_chan_aggregate")
 write_summary_csv(perm_perchan_export, "betaStim_clpb_perm_perchan_bycell")
+if (exists("clpb_region_direction") && nrow(clpb_region_direction) > 0) {
+  write_summary_csv(clpb_region_direction, "betaStim_clpb_region_direction")
+}
+if (exists("cb_halves") && nrow(cb_halves) > 0) {
+  write_summary_csv(cb_halves, "betaStim_cond_vs_base_phase_halves")
+}
 
 # Null vs baseline permutation tables (were previously console-only)
 if (nrow(nb_perchan) > 0)  write_summary_csv(nb_perchan,  "betaStim_null_vs_base_perchan")
@@ -1878,6 +1991,49 @@ if (exists("cb_perchan") && nrow(cb_perchan) > 0) {
   write_summary_csv(cb_subj_presence,  "betaStim_cond_vs_base_subject_presence")
   write_summary_csv(cb_summary,        "betaStim_cond_vs_base_summary")
   write_summary_csv(cb_summary_pooled, "betaStim_cond_vs_base_pooled_summary")
+
+  # ----------------------------------------------------------------------
+  # Trigger-channel modulation ranking per subject
+  # ----------------------------------------------------------------------
+  # Quantifies how often the beta-trigger channel (betaLabels == 1, the
+  # channel the closed-loop phase-triggering was locked to) shows the
+  # largest dose-dependent CEP modulation within its subject. Aggregates
+  # cb_perchan's obs_diff (median conditioned - median baseline, uV) across
+  # phase cells to one value per (subject x channel x dose) via max, then
+  # ranks channels within (subject x dose). Rank 1 = biggest modulation.
+  # Subjects with n_channels == 1 (only 702d24 after filtering) are trivially
+  # rank 1 and flagged for separate interpretation.
+  cb_channel_max <- plyr::ddply(cb_perchan,
+    .(sid, channel_raw, numStims, is_beta_ref), summarize,
+    obs_diff_max = max(obs_diff))
+  cb_channel_max$rank_within <- ave(cb_channel_max$obs_diff_max,
+    cb_channel_max$sid, cb_channel_max$numStims,
+    FUN = function(x) rank(-x, ties.method = "min"))
+  cb_channel_max$n_channels_subj <- ave(cb_channel_max$channel_raw,
+    cb_channel_max$sid, cb_channel_max$numStims, FUN = length)
+
+  trig_rank <- cb_channel_max[cb_channel_max$is_beta_ref == TRUE,
+    c("sid", "numStims", "rank_within", "n_channels_subj", "obs_diff_max")]
+  trig_rank <- trig_rank[order(trig_rank$sid, trig_rank$numStims), ]
+  names(trig_rank) <- c("sid", "numStims", "trigger_rank",
+                        "n_channels", "trigger_obs_diff_uV")
+  trig_rank$trigger_is_top <- trig_rank$trigger_rank == 1
+  trig_rank$trivial_single_channel <- trig_rank$n_channels == 1
+  cat("\n--- Trigger-channel modulation rank within each subject x dose ---\n")
+  print(trig_rank)
+
+  trig_summary <- plyr::ddply(trig_rank, .(numStims), summarize,
+    n_subjects_total             = length(sid),
+    n_subjects_multichannel      = sum(!trivial_single_channel),
+    n_trigger_top_all            = sum(trigger_is_top),
+    n_trigger_top_multichannel   = sum(trigger_is_top & !trivial_single_channel),
+    median_trigger_rank          = median(trigger_rank),
+    median_trigger_rank_mc       = median(trigger_rank[!trivial_single_channel]))
+  cat("\n--- Trigger-channel top-rank summary per dose ---\n")
+  print(trig_summary)
+
+  write_summary_csv(trig_rank,    "betaStim_trigger_channel_rank")
+  write_summary_csv(trig_summary, "betaStim_trigger_channel_rank_summary")
 }
 
 # ========================================================================
@@ -1915,7 +2071,7 @@ if (require(officer) && require(flextable)) {
     "0b5a2e: CL vs PB Per Channel x Phase x Dose (Sign-Flip + Bootstrap CIs)",
     style = "heading 2")
   ft <- flextable(perm_perchan_export) |> autofit() |>
-    set_caption("Per-cell sign-flip permutation on trial-level paired differences (10k Monte Carlo draws). Bootstrap 95% CIs from 2000 resamples on paired$diff. Supplementary detail to the channel-aggregated test above; rows sorted by dose then channel then delivered phase.")
+    set_caption("Per-cell sign-flip permutation on trial-level paired differences (10k Monte Carlo draws). Bootstrap 95% CIs from 2000 resamples on paired$diff. BH FDR within dose (perm_q_bh) — each dose level forms its own correction family of 13-16 cells. Supplementary detail to the channel-aggregated test above; rows sorted by dose then channel then delivered phase.")
   doc <- body_add_flextable(doc, ft)
   doc <- body_add_par(doc, "")
 
@@ -2019,6 +2175,44 @@ if (require(officer) && require(flextable)) {
                         "within-subject FDR results above."))
     doc <- body_add_flextable(doc, ft)
     doc <- body_add_par(doc, "")
+
+    # Trigger-channel modulation rank
+    if (exists("trig_rank") && nrow(trig_rank) > 0) {
+      doc <- body_add_par(doc, "Trigger-channel modulation rank per subject",
+                          style = "heading 2")
+      doc <- body_add_par(doc,
+        paste("For each subject x dose, channels were ranked by their maximum",
+              "conditioned-minus-baseline median difference (uV) across phase",
+              "cells. Rank 1 indicates the channel with the largest dose-dependent",
+              "CEP modulation. The beta-trigger channel is the channel used as",
+              "the phase reference for closed-loop stimulation (betaLabels == 1).",
+              "Subjects with only one included channel are trivially rank 1 and",
+              "flagged."),
+        style = "Normal")
+
+      tr_out <- trig_rank
+      names(tr_out) <- c("Subject", "Dose", "Trigger rank",
+                         "N channels", "Trigger obs_diff (uV)",
+                         "Trigger at top?", "Trivial (1 channel)")
+      ft <- flextable(tr_out) |> autofit() |>
+        set_caption("Per (subject x dose) rank of the beta-trigger channel within the subject's included channels, based on the maximum observed conditioned-minus-baseline median (uV) across phase cells.")
+      doc <- body_add_flextable(doc, ft)
+      doc <- body_add_par(doc, "")
+
+      ts_out <- trig_summary
+      names(ts_out) <- c("Dose", "N subjects (total)",
+                         "N subjects (multi-channel)",
+                         "Trigger top-ranked (all)",
+                         "Trigger top-ranked (multi-channel)",
+                         "Median trigger rank (all)",
+                         "Median trigger rank (multi-channel)")
+      doc <- body_add_par(doc, "Trigger-channel top-rank summary per dose",
+                          style = "heading 2")
+      ft <- flextable(ts_out) |> autofit() |>
+        set_caption("Count of subjects where the beta-trigger channel was the top-modulated channel (rank 1) at each dose level. 'Multi-channel' excludes subjects with only 1 included channel (trivially rank 1). Median rank summarizes where the trigger channel falls when not at the top.")
+      doc <- body_add_flextable(doc, ft)
+      doc <- body_add_par(doc, "")
+    }
   }
 
   docx_path <- here("output_plots", "betaStim_within_subject_tables.docx")
